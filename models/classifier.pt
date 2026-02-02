@@ -4,7 +4,7 @@ from torch.utils.data import DataLoader
 from torchvision import transforms, datasets
 
 # Encoder load & freeze
-encoder = torch.load("encoder.pt", map_location="cpu")
+encoder = torch.load("encoder_simclr.pt", map_location="cpu")
 encoder.eval()
 for param in encoder.parameters():
     param.requires_grad = False
