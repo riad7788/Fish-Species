@@ -2,67 +2,60 @@ import streamlit as st
 import torch
 from PIL import Image
 import torchvision.transforms as transforms
-import torch.nn as nn
 
-# ----------------------------------------
-# Page config
-# ----------------------------------------
+# ----------------------------
+# Page Config
+# ----------------------------
 st.set_page_config(
     page_title="🐟 Fish Species Classifier",
     page_icon="🐠",
     layout="wide",
-    initial_sidebar_state="expanded"
 )
 
-# ----------------------------------------
+# ----------------------------
 # Sidebar
-# ----------------------------------------
+# ----------------------------
 st.sidebar.title("Settings")
-st.sidebar.markdown("""
-Upload a fish image and see the predicted species.
-""")
 confidence_threshold = st.sidebar.slider("Confidence threshold", 0.0, 1.0, 0.5)
 
 with st.sidebar.expander("About"):
     st.write("""
-    - Developed using PyTorch + Streamlit  
-    - Features: Upload image, feature extraction, prediction  
-    - Model: SimCLR encoder + Linear classifier
+    - SimCLR encoder + linear classifier  
+    - Upload a fish image to predict species  
+    - Professional Streamlit UI
     """)
 
-# ----------------------------------------
-# Class names (adjust according to your dataset)
-# ----------------------------------------
-class_names = ["Tilapia", "Catfish", "Rohu"]  
+# ----------------------------
+# Class names
+# ----------------------------
+class_names = ["Biam", "Bata", "Batasio(tenra)","Chitul","Croaker(Poya)","Hilsha","Kajoli","Meni","Pabda","Poli","Puti","Rita","Rui","Rupchanda","Silver Carp","Telapiya","carp","Koi","kaikka","koral","shrimp"]
 
-# ----------------------------------------
-# Load models
-# ----------------------------------------
+# ----------------------------
+# Load Models (cached)
+# ----------------------------
 @st.cache_resource
 def load_models():
-    encoder = torch.load("models/encoder_simclr.pt", map_location="cpu")
+    encoder = torch.load("models/encoder.pt", map_location="cpu")
     encoder.eval()
-    
     classifier = torch.load("models/classifier.pt", map_location="cpu")
     classifier.eval()
-    
     return encoder, classifier
 
 encoder, classifier = load_models()
 st.success("✅ Models loaded successfully!")
 
-# ----------------------------------------
-# Image uploader
-# ----------------------------------------
+# ----------------------------
+# File uploader
+# ----------------------------
 uploaded_file = st.file_uploader("Upload Fish Image", type=["jpg","png","jpeg"])
 
 if uploaded_file:
     image = Image.open(uploaded_file)
     st.image(image, caption="Uploaded Image", use_column_width=True)
 
-    # ----------------------------------------
+    # ----------------------------
     # Preprocess image
-    # ----------------------------------------
+    # ----------------------------
     transform = transforms.Compose([
         transforms.Resize((224,224)),
         transforms.ToTensor(),
@@ -70,9 +63,9 @@ if uploaded_file:
     ])
     img_tensor = transform(image).unsqueeze(0)  # batch size 1
 
-    # ----------------------------------------
+    # ----------------------------
     # Buttons
-    # ----------------------------------------
+    # ----------------------------
     col1, col2 = st.columns(2)
     classify_btn = col1.button("🟢 Classify")
     clear_btn = col2.button("🔴 Clear")
