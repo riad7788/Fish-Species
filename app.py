@@ -63,7 +63,7 @@ def load_models():
     model_dir = os.path.join(base_dir, "models")
 
     encoder_path = os.path.join(model_dir, "simclr_encoder.pth")
-    classifier_path = os.path.join(model_dir, "fish_classifier.pth")
+    classifier_path = os.path.join(model_dir, "classifier.pt")
 
     if not os.path.exists(encoder_path):
         st.error(f"Encoder model not found: {encoder_path}")
