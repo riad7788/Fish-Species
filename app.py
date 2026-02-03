@@ -3,33 +3,32 @@ import torch
 import torch.nn as nn
 from torchvision import models, transforms
 from PIL import Image
+import requests
+from io import BytesIO
 
-# --- ১. মডেল আর্কিটেকচার (আপনার নোটবুক অনুযায়ী) ---
-def get_encoder():
-    # ResNet50 বেস যা ফিচার এক্সট্রাক্ট করবে
-    encoder = models.resnet50(weights=None)
-    encoder.fc = nn.Identity() 
-    return encoder
-
-# --- ২. মডেল লোডার (নতুন ফাইল লিঙ্ক সহ) ---
-@st.cache_resource(show_spinner="নতুন মডেল লোড হচ্ছে, দয়া করে অপেক্ষা করুন...")
-def load_expert_model():
+# --- ১. ইউনিক মডেল লোডার (পুরনো ক্যাশ ডিলিট করার জন্য) ---
+@st.cache_resource(ttl=1) # প্রতি ১ সেকেন্ড পর পর ক্যাশ চেক করবে
+def load_expert_model_v2():
     device = torch.device("cpu")
     
-    # আপনার Hugging Face এর সঠিক লিঙ্কসমূহ
-    ENCODER_URL = "https://huggingface.co/riad300/fish-simclr-encoder/resolve/main/encoder_simclr.pt"
+    # নতুন এবং সঠিক লিঙ্ক
     CLASSIFIER_URL = "https://huggingface.co/riad300/fish-simclr-encoder/resolve/main/fish_expert_weights.pt"
+    ENCODER_URL = "https://huggingface.co/riad300/fish-simclr-encoder/resolve/main/encoder_simclr.pt"
     
-    # এনকোডার লোড
-    encoder = get_encoder()
-    e_state = torch.hub.load_state_dict_from_url(ENCODER_URL, map_location=device, check_hash=False)
+    # এনকোডার
+    encoder = models.resnet50(weights=None)
+    encoder.fc = nn.Identity()
+    e_state = torch.hub.load_state_dict_from_url(ENCODER_URL, map_location=device)
     encoder.load_state_dict(e_state)
     
-    # ক্লাসিফায়ার লোড (২১টি প্রজাতির জন্য)
+    # ক্লাসিফায়ার (আপনার ২১টি দেশি মাছের জন্য)
     classifier = nn.Linear(2048, 21)
-    c_state = torch.hub.load_state_dict_from_url(CLASSIFIER_URL, map_location=device, check_hash=False)
     
-    # কী-ম্যাপিং ফিক্স: fc.weight কে weight এ রূপান্তর
+    # সরাসরি বাইনারি ডাউনলোড করে লোড করা (যাতে কোনোভাবেই পুরনো ক্যাশ না থাকে)
+    response = requests.get(CLASSIFIER_URL)
+    c_state = torch.load(BytesIO(response.content), map_location=device)
+    
+    # কী-ম্যাপিং ফিক্স
     fixed_state = {k.replace('fc.', ''): v for k, v in c_state.items()}
     classifier.load_state_dict(fixed_state)
     
@@ -37,36 +36,33 @@ def load_expert_model():
     classifier.eval()
     return encoder, classifier
 
-# --- ৩. ইউজার ইন্টারফেস সেটআপ ---
-st.set_page_config(page_title="Expert BD Fish AI", layout="centered")
-st.title("🐟 দেশি মাছ শনাক্তকারী (Expert Mode)")
-st.write("আপনার ট্রেনিং করা মডেল দিয়ে নিখুঁতভাবে মাছ শনাক্ত করুন।")
+# --- ২. অ্যাপ ইন্টারফেস ---
+st.set_page_config(page_title="Fish Expert Pro", layout="centered")
+st.title("🐟 দেশি মাছ শনাক্তকারী (Final Fix)")
 
-# মডেল কল করা
-try:
-    encoder, classifier = load_expert_model()
-    st.sidebar.success("মডেল এখন ১০০% রেডি!")
-except Exception as e:
-    st.error(f"মডেল লোডিং এরর: {e}")
+# ক্যাশ ক্লিয়ার বাটন (সরাসরি ইন্টারফেসে)
+if st.button('অ্যাপ যদি ভুল রেজাল্ট দেয় তবে এখানে ক্লিক করুন (Force Refresh)'):
+    st.cache_resource.clear()
+    st.rerun()
 
-# আপনার ফোল্ডার লিস্ট অনুযায়ী সঠিক নামের তালিকা
+encoder, classifier = load_expert_model_v2()
+
+# ২১টি মাছের সঠিক নামের তালিকা
 CLASSES = [
     "Baim (বাইন)", "Bata (বাটা)", "Batasio/Tengra (টেংরা)", "Chitul (চিতল)", 
     "Croaker/Poya (পোয়া)", "Hilsha (ইলিশ)", "Kajoli (কাজলী)", "Meni (মেনি)", 
     "Pabda (পাবদা)", "Poli (ফলি)", "Puti (পুঁটি)", "Rita (রিটা)", 
     "Rui (রুই)", "Rupchanda (রূপচাঁদা)", "Silver Carp (সিলভার কার্প)", 
     "Telapiya (তেলাপিয়া)", "Carp (কার্প)", "Koi (কৈ)", 
-    "Kaikka (কাইক্কা)", "Koral (কোরাল)", "Shrimp (চিংড়ি)"
+    "Kaikka (কাইkka)", "Koral (কোরাল)", "Shrimp (চিংড়ি)"
 ]
 
-# --- ৪. ছবি আপলোড ও প্রেডিকশন ---
-file = st.file_uploader("মাছের পরিষ্কার ছবি দিন", type=["jpg", "png", "jpeg"])
+file = st.file_uploader("মাছের ছবি দিন", type=["jpg", "png", "jpeg"])
 
 if file:
     img = Image.open(file).convert("RGB")
     st.image(img, use_container_width=True)
     
-    # প্রসেসিং (আপনার ট্রেনিং এর স্ট্যান্ডার্ড অনুযায়ী)
     tf = transforms.Compose([
         transforms.Resize((224, 224)),
         transforms.ToTensor(),
@@ -74,19 +70,11 @@ if file:
     ])
     
     with torch.no_grad():
-        features = encoder(tf(img).unsqueeze(0))
-        output = classifier(features)
-        prob, idx = torch.max(torch.softmax(output, dim=1), 1)
+        feats = encoder(tf(img).unsqueeze(0))
+        out = classifier(feats)
+        prob, idx = torch.max(torch.softmax(out, dim=1), 1)
     
-    # ফলাফল দেখানো
+    # রেজাল্ট
     confidence = prob.item() * 100
-    
-    # যদি ১৬.৩৪% এর মতো কম কনফিডেন্স আসে তবে সতর্ক করবে
-    if confidence < 30:
-        st.warning(f"মডেল নিশ্চিত নয় (নিশ্চয়তা: {confidence:.2f}%)। দয়া করে পরিষ্কার ছবি দিন।")
-    
     st.success(f"### শনাক্ত করা হয়েছে: **{CLASSES[idx.item()]}**")
     st.info(f"নিশ্চয়তা (Confidence): **{confidence:.2f}%**")
-
-st.divider()
-st.caption("টিপস: যদি রেজাল্ট ভুল আসে, তবে অ্যাপ মেনু থেকে 'Clear Cache' দিয়ে রিবুট করুন।")
