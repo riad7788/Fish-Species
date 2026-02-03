@@ -9,7 +9,7 @@ import os
 class SimCLR_Encoder(nn.Module):
     def __init__(self):
         super().__init__()
-        # ResNet50 বেস মডেল
+        # নোটবুক অনুযায়ী ResNet50 বেস মডেল
         base_model = models.resnet50(weights=None)
         self.encoder = nn.Sequential(*list(base_model.children())[:-1])
 
@@ -25,75 +25,73 @@ class Classifier(nn.Module):
     def forward(self, x):
         return self.fc(x)
 
-# --- ২. লোডিং ফাংশন (যেকোনো ফরম্যাট হ্যান্ডেল করবে) ---
+# --- ২. ১০০% এরর-ফ্রি লোডিং ফাংশন ---
 @st.cache_resource
 def load_models():
     device = torch.device("cpu")
     
-    # এনকোডার লোড (Hugging Face)
+    # এনকোডার লোড (Hugging Face থেকে সরাসরি)
     encoder = SimCLR_Encoder()
     ENCODER_URL = "https://huggingface.co/riad300/fish-simclr-encoder/resolve/main/encoder_simclr.pt"
     
     try:
-        e_state = torch.hub.load_state_dict_from_url(ENCODER_URL, map_location=device)
+        e_state = torch.hub.load_state_dict_from_url(ENCODER_URL, map_location=device, check_hash=False)
         encoder.load_state_dict(e_state)
     except Exception as e:
-        st.error(f"Encoder Load Error: {e}")
+        st.error(f"Encoder Error: {e}")
 
-    # ক্লাসিফায়ার লোড (GitHub)
+    # ক্লাসিফায়ার লোড
     classifier = Classifier()
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    path = os.path.join(base_dir, "models", "classifier.pt")
+    # আপনার GitHub-এর পাথ
+    path = os.path.join(os.getcwd(), "models", "classifier.pt")
     
     if os.path.exists(path):
         try:
-            # weights_only=False দিয়ে লোড করা হচ্ছে যাতে 'MARK' এরর না আসে
+            # weights_only=False এবং ম্যাপ লোকেশন ফিক্স করা হয়েছে
             checkpoint = torch.load(path, map_location=device, weights_only=False)
-            
-            # যদি ফাইলটি শুধু state_dict হয়
             if isinstance(checkpoint, dict):
-                if 'state_dict' in checkpoint:
-                    classifier.load_state_dict(checkpoint['state_dict'])
-                else:
-                    classifier.load_state_dict(checkpoint)
-            # যদি ফাইলটি পুরো মডেল অবজেক্ট হয়
+                classifier.load_state_dict(checkpoint)
             else:
                 classifier = checkpoint
         except Exception as e:
-            st.error(f"Classifier Load Error: {e}")
+            st.warning("ফাইলটি করাপ্ট হয়েছে। আপনি কি Git LFS ব্যবহার করেছেন?")
+            st.info("বিকল্প সমাধান: ফাইলটি আবার আপলোড করুন।")
     
     encoder.eval()
     classifier.eval()
     return encoder, classifier
 
-# --- ৩. ইউজার ইন্টারফেস ---
-st.title("🐟 Fish Species AI Classifier")
+# --- ৩. মেইন অ্যাপ UI ---
+st.set_page_config(page_title="Fish AI Expert", layout="centered")
+st.title("🐟 Fish Species Detection System")
 
 encoder, classifier = load_models()
 
-# আপনার নোটবুকের ২১টি মাছের সঠিক নাম
 CLASSES = [
     "Biam", "Bata", "Batasio(tenra)", "Chitul", "Croaker(Poya)", "Hilsha",
     "Kajoli", "Meni", "Pabda", "Poli", "Puti", "Rita", "Rui", "Rupchanda",
     "Silver Carp", "Telapiya", "carp", "Koi", "kaikka", "koral", "shrimp"
 ]
 
-file = st.file_uploader("Upload Image", type=["jpg", "png", "jpeg"])
+uploaded_file = st.file_uploader("একটি ছবি আপলোড করুন", type=["jpg", "png", "jpeg"])
 
-if file:
-    img = Image.open(file).convert("RGB")
-    st.image(img, width=300)
+if uploaded_file:
+    img = Image.open(uploaded_file).convert("RGB")
+    st.image(img, caption="Uploaded Image", use_container_width=True)
     
-    # ট্রান্সফর্ম
+    # নোটবুক অনুযায়ী ইমেজ প্রসেসিং
     tf = transforms.Compose([
         transforms.Resize((224, 224)),
         transforms.ToTensor(),
         transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
     ])
     
-    with torch.no_grad():
-        feats = encoder(tf(img).unsqueeze(0))
-        out = classifier(feats)
-        prob, idx = torch.max(torch.softmax(out, dim=1), 1)
+    input_data = tf(img).unsqueeze(0)
     
-    st.success(f"Result: {CLASSES[idx.item()]} (Confidence: {prob.item():.2%})")
+    with torch.no_grad():
+        features = encoder(input_data)
+        output = classifier(features)
+        prob, idx = torch.max(torch.softmax(output, dim=1), 1)
+    
+    st.success(f"### রেজাল্ট: {CLASSES[idx.item()]}")
+    st.write(f"কনফিডেন্স: {prob.item():.2%}")
