@@ -58,9 +58,6 @@ class Classifier(nn.Module):
 # Load Models (FIXED)
 # -----------------------
 @st.cache_resource
-import os
-
-@st.cache_resource
 def load_models():
     base_dir = os.path.dirname(os.path.abspath(__file__))
     model_dir = os.path.join(base_dir, "models")
