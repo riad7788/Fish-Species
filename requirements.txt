@@ -3,5 +3,5 @@ torch
 torchvision
 Pillow
 numpy
-gdown
 opencv-python
+gdown>=4.7.1
