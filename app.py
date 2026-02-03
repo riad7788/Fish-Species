@@ -4,20 +4,18 @@ import torch.nn as nn
 from torchvision import models, transforms
 from PIL import Image
 
-# --- ১. সঠিক এনকোডার আর্কিটেকচার (resnet50) ---
+# --- ১. এনকোডার (হুবহু নোটবুক অনুযায়ী) ---
 def get_encoder():
-    # সরাসরি ResNet50 বেস মডেল
     encoder = models.resnet50(weights=None)
-    # আপনার নোটবুক অনুযায়ী fc লেয়ারকে Identity করা হয়েছে যাতে ২০৪৮ টি ফিচার পাওয়া যায়
     encoder.fc = nn.Identity() 
     return encoder
 
-# --- ২. ক্লাসিফায়ার লোডিং লজিক (এরর ফিক্সড) ---
+# --- ২. ক্লাসিফায়ার লোড করার সবচাইতে নিরাপদ পদ্ধতি ---
 @st.cache_resource
 def load_full_model():
     device = torch.device("cpu")
     
-    # Hugging Face লিঙ্কসমূহ
+    # Hugging Face URLs
     ENCODER_URL = "https://huggingface.co/riad300/fish-simclr-encoder/resolve/main/encoder_simclr.pt"
     CLASSIFIER_URL = "https://huggingface.co/riad300/fish-simclr-encoder/resolve/main/classifier.pt"
     
@@ -26,47 +24,42 @@ def load_full_model():
     e_state = torch.hub.load_state_dict_from_url(ENCODER_URL, map_location=device, check_hash=False)
     encoder.load_state_dict(e_state)
     
-    # আপনার এরর অনুযায়ী ক্লাসিফায়ার সরাসরি একটি Linear লেয়ার
+    # ক্লাসিফায়ার লোড - নামের ঝামেলা এড়াতে সরাসরি Linear লেয়ারের state_dict হ্যান্ডেল করা
     classifier = nn.Linear(2048, 21)
     c_state = torch.hub.load_state_dict_from_url(CLASSIFIER_URL, map_location=device, check_hash=False)
     
-    # এরর এড়াতে 'strict=False' এবং সরাসরি ওয়েটস ম্যাপিং
-    try:
-        classifier.load_state_dict(c_state)
-    except:
-        # যদি ফাইলটি শুধু ওয়েটস হয় (আপনার এরর অনুযায়ী এটিই সমস্যা)
-        classifier.weight.data.copy_(c_state['weight'] if 'weight' in c_state else c_state)
-        classifier.bias.data.copy_(c_state['bias'] if 'bias' in c_state else c_state)
+    # আপনার ফাইলে 'fc.weight' এর বদলে শুধু 'weight' থাকতে পারে, তাই এই চেকটি জরুরি
+    new_state_dict = {}
+    for key, value in c_state.items():
+        new_key = key.replace('fc.', '') # 'fc.weight' কে 'weight' বানানো হচ্ছে
+        new_state_dict[new_key] = value
         
+    classifier.load_state_dict(new_state_dict)
+    
     encoder.eval()
     classifier.eval()
     return encoder, classifier
 
-# --- ৩. মেইন অ্যাপ ইন্টারফেস ---
-st.set_page_config(page_title="Fish AI", page_icon="🐟")
+# --- ৩. ইউজার ইন্টারফেস ---
+st.set_page_config(page_title="Fish AI Expert")
 st.title("🐟 Fish Species AI Classifier")
 
-try:
-    with st.spinner('মডেল লোড হচ্ছে...'):
-        encoder, classifier = load_full_model()
-    st.sidebar.success("মডেল রেডি!")
-except Exception as e:
-    st.error(f"Error: {e}")
+encoder, classifier = load_full_model()
 
-# আপনার নোটবুকের ২১টি ক্লাসের নাম
+# আপনার নোটবুকের ২১টি মাছের নামের লিস্ট
 CLASSES = [
     "Biam", "Bata", "Batasio(tenra)", "Chitul", "Croaker(Poya)", "Hilsha",
     "Kajoli", "Meni", "Pabda", "Poli", "Puti", "Rita", "Rui", "Rupchanda",
     "Silver Carp", "Telapiya", "carp", "Koi", "kaikka", "koral", "shrimp"
 ]
 
-uploaded_file = st.file_uploader("একটি মাছের ছবি আপলোড করুন", type=["jpg", "jpeg", "png"])
+uploaded_file = st.file_uploader("মাছের ছবি আপলোড করুন", type=["jpg", "jpeg", "png"])
 
 if uploaded_file:
     image = Image.open(uploaded_file).convert("RGB")
-    st.image(image, caption="Uploaded Image", use_container_width=True)
+    st.image(image, width=400)
     
-    # ইমেজ ট্রান্সফর্মেশন
+    # ইমেজ প্রি-প্রসেসিং (Normalization values are standard for ResNet)
     tf = transforms.Compose([
         transforms.Resize((224, 224)),
         transforms.ToTensor(),
@@ -75,12 +68,14 @@ if uploaded_file:
     
     with torch.no_grad():
         input_tensor = tf(image).unsqueeze(0)
-        # এনকোডার থেকে ফিচার বের করা
+        # ১. ফিচার বের করা
         features = encoder(input_tensor)
-        # ক্লাসিফায়ার থেকে প্রেডিকশন
+        # ২. সঠিক মাছ শনাক্ত করা
         outputs = classifier(features)
         probs = torch.softmax(outputs, dim=1)
         confidence, idx = torch.max(probs, 1)
     
-    st.success(f"### রেজাল্ট: {CLASSES[idx.item()]}")
-    st.info(f"কনফিডেন্স: {confidence.item():.2%}")
+    # রেজাল্ট ডিসপ্লে
+    result_name = CLASSES[idx.item()]
+    st.success(f"### রেজাল্ট: {result_name}")
+    st.write(f"কনফিডেন্স: {confidence.item():.2%}")
