@@ -58,21 +58,35 @@ class Classifier(nn.Module):
 # Load Models (FIXED)
 # -----------------------
 @st.cache_resource
-def load_models():
-    encoder = SimCLR_Encoder()
-    classifier = Classifier(512, 5)  # change class number if needed
+import os
 
-    encoder.load_state_dict(
-        torch.load("models/simclr_encoder.pth", map_location=device)
-    )
-    classifier.load_state_dict(
-        torch.load("models/fish_classifier.pth", map_location=device)
-    )
+@st.cache_resource
+def load_models():
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    model_dir = os.path.join(base_dir, "models")
+
+    encoder_path = os.path.join(model_dir, "simclr_encoder.pth")
+    classifier_path = os.path.join(model_dir, "fish_classifier.pth")
+
+    if not os.path.exists(encoder_path):
+        st.error(f"Encoder model not found: {encoder_path}")
+        st.stop()
+
+    if not os.path.exists(classifier_path):
+        st.error(f"Classifier model not found: {classifier_path}")
+        st.stop()
+
+    encoder = SimCLR_Encoder()
+    classifier = Classifier(512, 5)
+
+    encoder.load_state_dict(torch.load(encoder_path, map_location=device))
+    classifier.load_state_dict(torch.load(classifier_path, map_location=device))
 
     encoder.to(device).eval()
     classifier.to(device).eval()
 
     return encoder, classifier
+
 
 
 encoder, classifier = load_models()
