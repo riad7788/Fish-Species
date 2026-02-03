@@ -4,16 +4,56 @@ import torch.nn as nn
 from torchvision import models, transforms
 from PIL import Image
 
-# ১. প্রফেশনাল আর্কিটেকচার সেটআপ (২১টি মাছের জন্য)
-def get_model():
-    # ResNet50 বেস ব্যবহার করা হয়েছে যা দেশি মাছের সূক্ষ্ম পার্থক্য ধরতে পারে
-    model = models.resnet50(weights=models.ResNet50_Weights.DEFAULT)
-    num_ftrs = model.fc.in_features
-    # আপনার ২১টি প্রজাতির লিস্ট অনুযায়ী আউটপুট লেয়ার
-    model.fc = nn.Linear(num_ftrs, 21) 
-    return model
+# --- ১. এনকোডার আর্কিটেকচার (ResNet50) ---
+def get_encoder():
+    # নোটবুক অনুযায়ী ResNet50 বেস মডেল
+    encoder = models.resnet50(weights=None)
+    encoder.fc = nn.Identity() 
+    return encoder
 
-# ২. দেশি মাছের সঠিক তালিকা
+# --- ২. মডেল লোডার (আপনার নতুন fish_expert_weights.pt সহ) ---
+@st.cache_resource
+def load_bd_expert_model():
+    device = torch.device("cpu")
+    
+    # আপনার Hugging Face লিঙ্কসমূহ
+    ENCODER_URL = "https://huggingface.co/riad300/fish-simclr-encoder/resolve/main/encoder_simclr.pt"
+    # আপনার নতুন আপলোড করা সঠিক ফাইল লিঙ্ক
+    CLASSIFIER_URL = "https://huggingface.co/riad300/fish-simclr-encoder/resolve/main/fish_expert_weights.pt"
+    
+    # এনকোডার লোড করা
+    encoder = get_encoder()
+    e_state = torch.hub.load_state_dict_from_url(ENCODER_URL, map_location=device, check_hash=False)
+    encoder.load_state_dict(e_state)
+    
+    # ক্লাসিফায়ার লোড করা (২১টি মাছের জন্য)
+    classifier = nn.Linear(2048, 21)
+    c_state = torch.hub.load_state_dict_from_url(CLASSIFIER_URL, map_location=device, check_hash=False)
+    
+    # ওয়েটস ম্যাপিং (যাতে Missing Key এরর না আসে)
+    new_state = {}
+    for k, v in c_state.items():
+        name = k.replace('fc.', '') # 'fc.weight' -> 'weight'
+        new_state[name] = v
+    
+    classifier.load_state_dict(new_state)
+    
+    encoder.eval()
+    classifier.eval()
+    return encoder, classifier
+
+# --- ৩. ইউজার ইন্টারফেস ---
+st.set_page_config(page_title="Fish AI Expert", page_icon="🐟")
+st.title("🐟 দেশি মাছ শনাক্তকারী (Expert Mode)")
+st.markdown("আপনার ট্রেনিং করা ২১টি প্রজাতির মাছ শনাক্ত করতে ছবি আপলোড করুন।")
+
+try:
+    encoder, classifier = load_bd_expert_model()
+    st.sidebar.success("মডেল এখন ১০০% রেডি!")
+except Exception as e:
+    st.error(f"লোডিং এরর: {e}")
+
+# আপনার নোটবুকের ২১টি মাছের নামের লিস্ট
 CLASSES = [
     "Baim (বাইন)", "Bata (বাটা)", "Batasio/Tengra (টেংরা)", "Chitul (চিতল)", 
     "Croaker/Poya (পোয়া)", "Hilsha (ইলিশ)", "Kajoli (কাজলী)", "Meni (মেনি)", 
@@ -23,52 +63,28 @@ CLASSES = [
     "Kaikka (কাইক্কা)", "Koral (কোরাল)", "Shrimp (চিংড়ি)"
 ]
 
-st.set_page_config(page_title="BD Fish AI Expert", layout="centered")
-st.title("🐟 বাংলাদেশি দেশি মাছ শনাক্তকারী AI")
+uploaded_file = st.file_uploader("একটি মাছের ছবি আপলোড করুন", type=["jpg", "jpeg", "png"])
 
-# ৩. উন্নত মডেল লোডার
-@st.cache_resource
-def load_bd_expert():
-    model = get_model()
-    # এখানে আপনার যদি ট্রেইন করা .pt ফাইল থাকে তবে সেটি লোড হবে
-    model.eval()
-    return model
-
-model = load_bd_expert()
-file = st.file_uploader("মাছের ছবি আপলোড করুন", type=["jpg", "png", "jpeg"])
-
-if file:
-    img = Image.open(file).convert("RGB")
-    st.image(img, use_container_width=True)
+if uploaded_file:
+    image = Image.open(uploaded_file).convert("RGB")
+    st.image(image, caption="বিশ্লেষণ করা হচ্ছে...", use_container_width=True)
     
-    # ৪. উন্নত ইমেজ প্রসেসিং (যাতে বাইন মাছের মতো লম্বা মাছ ভালো চেনে)
-    preprocess = transforms.Compose([
-        transforms.Resize(256),
-        transforms.CenterCrop(224),
+    # ইমেজ প্রি-প্রসেসিং
+    tf = transforms.Compose([
+        transforms.Resize((224, 224)),
         transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
     ])
     
-    input_tensor = preprocess(img).unsqueeze(0)
-    
     with torch.no_grad():
-        output = model(input_tensor)
-        prob = torch.nn.functional.softmax(output[0], dim=0)
-        conf, idx = torch.max(prob, 0)
-
-    # রেজাল্ট ডিসপ্লে
-    st.subheader("🔍 শনাক্তকরণের ফলাফল:")
+        input_tensor = tf(image).unsqueeze(0)
+        # ফিচার এক্সট্রাকশন
+        features = encoder(input_tensor)
+        # ক্লাসিফিকেশন
+        outputs = classifier(features)
+        probs = torch.softmax(outputs, dim=1)
+        confidence, idx = torch.max(probs, 1)
     
-    result_name = CLASSES[idx.item()]
-    
-    # কনফিডেন্স লেভেল অনুযায়ী মেসেজ
-    if conf.item() > 0.45:
-        st.success(f"### এটি সম্ভবত: **{result_name}**")
-        st.info(f"নিশ্চয়তা: {conf.item()*100:.2f}%")
-    else:
-        # যদি মডেল নিশ্চিত না হয়
-        st.warning("মাছটি পুরোপুরি স্পষ্ট নয়। ছবিটির মাছটি খুব কাছাকাছি: **" + result_name + "**")
-        st.write(f"মডেলের নিশ্চয়তা: {conf.item()*100:.2f}%")
-
-st.divider()
-st.info("টিপস: মাছের পুরো শরীর এবং আঁইশ যেন পরিষ্কার দেখা যায় এমন ছবি দিন।")
+    # ফাইনাল রেজাল্ট
+    st.success(f"### শনাক্ত করা হয়েছে: **{CLASSES[idx.item()]}**")
+    st.info(f"নিশ্চয়তা (Confidence): **{confidence.item()*100:.2f}%**")
