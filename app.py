@@ -5,13 +5,13 @@ from torchvision import models, transforms
 from PIL import Image
 import os
 
-# --- ১. মডেল আর্কিটেকচার (আপনার নোটবুক অনুযায়ী ResNet50) ---
+# --- ১. মডেল স্ট্রাকচার (আপনার নোটবুক অনুযায়ী ResNet50) ---
 class SimCLR_Encoder(nn.Module):
     def __init__(self):
         super().__init__()
         # নোটবুক অনুযায়ী resnet50 ব্যবহার করা হয়েছে
         base_model = models.resnet50(weights=None)
-        # লাস্ট লেয়ার বাদ দিয়ে ফিচার এক্সট্রাক্টর তৈরি
+        # লাস্ট লেয়ার (fc) বাদ দিয়ে ফিচার এক্সট্রাক্টর তৈরি
         self.encoder = nn.Sequential(*list(base_model.children())[:-1])
 
     def forward(self, x):
@@ -26,15 +26,14 @@ class Classifier(nn.Module):
     def forward(self, x):
         return self.fc(x)
 
-# --- ২. মডেল লোডিং ফাংশন (Hugging Face + Local GitHub) ---
+# --- ২. মডেল লোডিং ফাংশন ---
 @st.cache_resource
 def load_full_system():
     device = torch.device("cpu")
     
-    # আপনার এনকোডার লিঙ্ক (Hugging Face)
+    # এনকোডার ডাউনলোড ও লোড (আপনার Hugging Face লিঙ্ক)
     ENCODER_URL = "https://huggingface.co/riad300/fish-simclr-encoder/resolve/main/encoder_simclr.pt"
     
-    # এনকোডার ডাউনলোড ও লোড
     encoder = SimCLR_Encoder()
     try:
         # সরাসরি লিঙ্ক থেকে এনকোডার লোড করা
@@ -51,12 +50,12 @@ def load_full_system():
     classifier = Classifier(2048, 21) 
     
     if os.path.exists(classifier_path):
-        # নোটবুক অনুযায়ী লোড করা
-        c_state = torch.load(classifier_path, map_location=device, weights_only=False)
-        if isinstance(c_state, dict):
+        try:
+            # আপনি state_dict সেভ করেছেন, তাই এটি লোড হবে
+            c_state = torch.load(classifier_path, map_location=device, weights_only=False)
             classifier.load_state_dict(c_state)
-        else:
-            classifier = c_state
+        except Exception as e:
+            st.error(f"Classifier weights loading error: {e}")
     else:
         st.warning("Classifier weights not found! Please upload 'classifier.pt' to models/ folder.")
         
@@ -64,35 +63,34 @@ def load_full_system():
     classifier.eval()
     return encoder, classifier
 
-# --- ৩. ইউজার ইন্টারফেস (Professional UI) ---
+# --- ৩. ইউজার ইন্টারফেস (UI) ---
 st.set_page_config(page_title="Fish AI Expert", page_icon="🐟", layout="centered")
 
-st.markdown("<h1 style='text-align: center;'>🐟 Fish Species AI Classifier</h1>", unsafe_allow_html=True)
-st.markdown("<p style='text-align: center;'>Powered by SimCLR & ResNet50</p>", unsafe_allow_html=True)
+st.markdown("<h1 style='text-align: center; color: #1E88E5;'>🐟 Fish Species AI Classifier</h1>", unsafe_allow_html=True)
+st.markdown("<p style='text-align: center;'>Self-Supervised Learning (SimCLR) with ResNet50</p>", unsafe_allow_html=True)
 st.write("---")
 
 # মডেল কল করা
-with st.spinner('AI Brain is loading...'):
+with st.spinner('AI Models are loading... Please wait.'):
     encoder, classifier = load_full_system()
 
-# আপনার নোটবুকের ২১টি মাছের সঠিক নাম
+# আপনার নোটবুকের ২১টি মাছের নাম
 CLASSES = [
     "Biam", "Bata", "Batasio(tenra)", "Chitul", "Croaker(Poya)", "Hilsha",
     "Kajoli", "Meni", "Pabda", "Poli", "Puti", "Rita", "Rui", "Rupchanda",
     "Silver Carp", "Telapiya", "carp", "Koi", "kaikka", "koral", "shrimp"
 ]
 
-uploaded_file = st.file_uploader("📤 আপলোড করুন মাছের ছবি...", type=["jpg", "png", "jpeg"])
+uploaded_file = st.file_uploader("📤 একটি মাছের ছবি আপলোড করুন...", type=["jpg", "png", "jpeg"])
 
 if uploaded_file:
     img = Image.open(uploaded_file).convert("RGB")
     
-    # সুন্দর করে ডিসপ্লে করা
     col1, col2 = st.columns([1, 1])
     with col1:
         st.image(img, caption="Uploaded Image", use_container_width=True)
     
-    # নোটবুক অনুযায়ী ইমেজ প্রসেসিং
+    # ইমেজ প্রসেসিং
     preprocess = transforms.Compose([
         transforms.Resize((224, 224)),
         transforms.ToTensor(),
@@ -102,19 +100,16 @@ if uploaded_file:
     input_tensor = preprocess(img).unsqueeze(0)
     
     with torch.no_grad():
-        # প্রেডিকশন লজিক
         features = encoder(input_tensor)
         outputs = classifier(features)
         probs = torch.softmax(outputs, dim=1)
         confidence, idx = torch.max(probs, 1)
     
     with col2:
-        st.subheader("🔍 Prediction Results")
+        st.subheader("🔍 Result")
         st.success(f"**Species:** {CLASSES[idx.item()]}")
         st.info(f"**Confidence:** {confidence.item():.2%}")
-        
-        # প্রোগ্রেস বার দিয়ে কনফিডেন্স দেখানো
         st.progress(confidence.item())
 
 st.write("---")
-st.caption("Developed by Riad | Capstone Project")
+st.caption("Developed by Riad | Fish Species Detection System")
