@@ -4,68 +4,59 @@ import torch.nn as nn
 from torchvision import models, transforms
 from PIL import Image
 
-# --- ১. এনকোডার আর্কিটেকচার (আপনার নোটবুক অনুযায়ী) ---
+# --- ১. সঠিক আর্কিটেকচার ---
 def get_encoder():
-    # সরাসরি ResNet50 বেস মডেল
     encoder = models.resnet50(weights=None)
-    encoder.fc = nn.Identity() # নোটবুক অনুযায়ী fc বাদ দেওয়া হয়েছে
+    encoder.fc = nn.Identity() 
     return encoder
 
-# --- ২. মডেল লোডিং (Hugging Face থেকে) ---
-@st.cache_resource
+# --- ২. ক্যাশ ক্লিয়ারিং সাপোর্টেড লোডার ---
+@st.cache_resource(show_spinner=True)
 def load_full_model():
     device = torch.device("cpu")
     
-    # এনকোডার এবং নতুন ক্লাসিফায়ার লিঙ্ক
+    # আপনার নতুন লিঙ্কসমূহ
     ENCODER_URL = "https://huggingface.co/riad300/fish-simclr-encoder/resolve/main/encoder_simclr.pt"
     CLASSIFIER_URL = "https://huggingface.co/riad300/fish-simclr-encoder/resolve/main/classifier_final.pt"
     
-    # এনকোডার লোড
+    # এনকোডার
     encoder = get_encoder()
     e_state = torch.hub.load_state_dict_from_url(ENCODER_URL, map_location=device, check_hash=False)
     encoder.load_state_dict(e_state)
     
-    # ক্লাসিফায়ার লোড (আপনার এরর হ্যান্ডেল করার জন্য)
+    # ক্লাসিফায়ার - নোটবুকের ট্রেনিং অনুযায়ী
     classifier = nn.Linear(2048, 21)
     c_state = torch.hub.load_state_dict_from_url(CLASSIFIER_URL, map_location=device, check_hash=False)
     
-    # নামের অমিল থাকলে তা ঠিক করা (যেমন: fc.weight কে weight বানানো)
-    new_state = {}
-    for k, v in c_state.items():
-        name = k.replace('fc.', '') 
-        new_state[name] = v
-    
-    classifier.load_state_dict(new_state)
+    # কী-ম্যাপিং (fc.weight -> weight)
+    fixed_state = {k.replace('fc.', ''): v for k, v in c_state.items()}
+    classifier.load_state_dict(fixed_state)
     
     encoder.eval()
     classifier.eval()
     return encoder, classifier
 
-# --- ৩. মেইন ইউজার ইন্টারফেস ---
-st.set_page_config(page_title="Fish AI Classifier", layout="centered")
-st.title("🐟 Fish Species AI Expert")
+# --- ৩. ইউজার ইন্টারফেস ---
+st.set_page_config(page_title="Fish AI Expert", layout="centered")
+st.title("🐟 Fish Species AI Classifier")
 
-# মডেল লোড করা
-try:
-    encoder, classifier = load_full_model()
-    st.sidebar.success("মডেল এখন ১০০% রেডি!")
-except Exception as e:
-    st.error(f"মডেল লোডিং এরর: {e}")
+# মডেল কল করা
+encoder, classifier = load_full_model()
 
-# আপনার নোটবুকের ২১টি মাছের নামের লিস্ট
+# সঠিক ক্লাসের লিস্ট
 CLASSES = [
     "Biam", "Bata", "Batasio(tenra)", "Chitul", "Croaker(Poya)", "Hilsha",
     "Kajoli", "Meni", "Pabda", "Poli", "Puti", "Rita", "Rui", "Rupchanda",
     "Silver Carp", "Telapiya", "carp", "Koi", "kaikka", "koral", "shrimp"
 ]
 
-file = st.file_uploader("মাছের ছবি আপলোড করুন", type=["jpg", "jpeg", "png"])
+file = st.file_uploader("মাছের ছবি দিন", type=["jpg", "png", "jpeg"])
 
 if file:
     img = Image.open(file).convert("RGB")
     st.image(img, use_container_width=True)
     
-    # প্রি-প্রসেসিং (ResNet50 এর স্ট্যান্ডার্ড মান)
+    # প্রসেসিং
     tf = transforms.Compose([
         transforms.Resize((224, 224)),
         transforms.ToTensor(),
@@ -73,13 +64,13 @@ if file:
     ])
     
     with torch.no_grad():
-        input_data = tf(img).unsqueeze(0)
-        # ফিচার এক্সট্রাকশন
-        feats = encoder(input_data)
-        # প্রেডিকশন
-        output = classifier(feats)
-        prob, idx = torch.max(torch.softmax(output, dim=1), 1)
+        feats = encoder(tf(img).unsqueeze(0))
+        out = classifier(feats)
+        prob, idx = torch.max(torch.softmax(out, dim=1), 1)
     
-    # সুন্দর করে আউটপুট দেখানো
+    # রেজাল্ট চেক (যদি কনফিডেন্স কম হয় তবে ওয়ার্নিং দেবে)
     st.success(f"### শনাক্ত করা হয়েছে: **{CLASSES[idx.item()]}**")
     st.info(f"কনফিডেন্স লেভেল: **{prob.item()*100:.2f}%**")
+    
+    if prob.item() < 0.30:
+        st.warning("সতর্কতা: কনফিডেন্স খুব কম! সম্ভবত মডেলটি ভুল করছে। ক্যাশ ক্লিয়ার করে আবার চেষ্টা করুন।")
