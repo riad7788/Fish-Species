@@ -1,5 +1,5 @@
 import streamlit as st
-import os
+import os  # 1. os মডিউল যোগ করা হয়েছে
 import torch
 import torch.nn as nn
 from torchvision import models, transforms
@@ -39,6 +39,7 @@ class SimCLR_Encoder(nn.Module):
     def __init__(self):
         super().__init__()
         base_model = models.resnet18(weights=None)
+        # ResNet এর শেষ লেয়ার বাদ দিয়ে ফিচার এক্সট্রাক্টর তৈরি
         self.features = nn.Sequential(*list(base_model.children())[:-1])
         self.out_dim = 512
 
@@ -58,9 +59,9 @@ class Classifier(nn.Module):
 # Class Names (Total 21)
 # -----------------------
 CLASS_NAMES = [
-    "Biam", "Bata", "Batasio(tenra)","Chitul","Croaker(Poya)","Hilsha",
-    "Kajoli","Meni","Pabda","Poli","Puti","Rita","Rui","Rupchanda",
-    "Silver Carp","Telapiya","carp","Koi","kaikka","koral","shrimp"
+    "Biam", "Bata", "Batasio(tenra)", "Chitul", "Croaker(Poya)", "Hilsha",
+    "Kajoli", "Meni", "Pabda", "Poli", "Puti", "Rita", "Rui", "Rupchanda",
+    "Silver Carp", "Telapiya", "carp", "Koi", "kaikka", "koral", "shrimp"
 ]
 
 # -----------------------
@@ -68,27 +69,35 @@ CLASS_NAMES = [
 # -----------------------
 @st.cache_resource
 def load_models():
-    # os.path.dirname ব্যবহার করার জন্য উপরে 'import os' করা হয়েছে
+    # ডিরেক্টরি পাথ সেট করা
     base_dir = os.path.dirname(os.path.abspath(__file__))
     model_dir = os.path.join(base_dir, "models")
-
-    # আপনার GitHub এর ফাইল নামের সাথে এগুলো মিল থাকতে হবে
-    # যদি আপনার শুধু একটা .pt ফাইল থাকে, তবে এনকোডার লোড করার দরকার নেই যদি সেটা কম্বাইন্ড হয়।
-    # আমি এখানে আপনার কোড অনুযায়ী পাথ সেট করছি:
-    classifier_path = os.path.join(model_dir, "classifier.pt") # GitHub অনুযায়ী নাম
+    
+    # GitHub অনুযায়ী ফাইলের নাম classifier.pt
+    classifier_path = os.path.join(model_dir, "classifier.pt")
 
     if not os.path.exists(classifier_path):
-        st.error(f"Model file not found at: {classifier_path}")
+        st.error(f"মডেল ফাইলটি পাওয়া যায়নি: {classifier_path}")
         st.stop()
 
-    # এখানে num_classes অবশ্যই len(CLASS_NAMES) হতে হবে (২১)
+    # মডেল ইনিশিয়ালাইজেশন (২১টি ক্লাসের জন্য)
     encoder = SimCLR_Encoder()
     classifier = Classifier(512, len(CLASS_NAMES))
 
-    # লোড করা
-    # দ্রষ্টব্য: যদি classifier.pt এর ভেতর এনকোডার ও ক্লাসিফায়ার একসাথে থাকে তবে কোড একটু বদলাতে হবে
-    checkpoint = torch.load(classifier_path, map_location=device)
-    classifier.load_state_dict(checkpoint) 
+    # 2. weights_only=False যোগ করা হয়েছে এরর এড়ানোর জন্য
+    try:
+        checkpoint = torch.load(classifier_path, map_location=device, weights_only=False)
+        
+        # যদি checkpoint সরাসরি state_dict হয়
+        if isinstance(checkpoint, dict):
+            classifier.load_state_dict(checkpoint)
+        else:
+            # যদি পুরো মডেল অবজেক্ট সেভ করা থাকে
+            classifier = checkpoint
+            
+    except Exception as e:
+        st.error(f"মডেল লোড করতে সমস্যা হয়েছে: {e}")
+        st.stop()
 
     encoder.to(device).eval()
     classifier.to(device).eval()
@@ -96,10 +105,7 @@ def load_models():
     return encoder, classifier
 
 # মডেল কল করা
-try:
-    encoder, classifier = load_models()
-except Exception as e:
-    st.error(f"Error loading model: {e}")
+encoder, classifier = load_models()
 
 # -----------------------
 # Image Transform
@@ -114,16 +120,26 @@ transform = transforms.Compose([
 ])
 
 # -----------------------
-# UI
+# UI Design
 # -----------------------
 st.markdown("<h1 style='text-align:center;'>🐟 Fish Species Detection System</h1>", unsafe_allow_html=True)
+st.markdown("<p style='text-align:center;'>Self-Supervised Learning (SimCLR) based Fish Classification</p>", unsafe_allow_html=True)
+st.write("---")
 
-uploaded_file = st.file_uploader("📤 Upload a fish image", type=["jpg", "png", "jpeg"])
+uploaded_file = st.file_uploader("📤 Upload a fish image (JPG, PNG, JPEG)", type=["jpg", "png", "jpeg"])
 
+# -----------------------
+# Prediction Logic
+# -----------------------
 if uploaded_file is not None:
+    col1, col2 = st.columns([1, 1])
+    
     image = Image.open(uploaded_file).convert("RGB")
-    st.image(image, caption="Uploaded Image", use_container_width=True)
+    
+    with col1:
+        st.image(image, caption="Uploaded Image", use_container_width=True)
 
+    # ইমেজ প্রসেসিং ও প্রেডিকশন
     img_tensor = transform(image).unsqueeze(0).to(device)
 
     with torch.no_grad():
@@ -134,5 +150,10 @@ if uploaded_file is not None:
         pred_idx = torch.argmax(probs, dim=1).item()
         confidence = probs[0][pred_idx].item()
 
-    st.success(f"🐠 **Predicted Species:** {CLASS_NAMES[pred_idx]}")
-    st.info(f"🎯 **Confidence:** {confidence:.2%}")
+    with col2:
+        st.subheader("🔍 Prediction Result")
+        st.success(f"🐠 **Predicted Species:** {CLASS_NAMES[pred_idx]}")
+        st.info(f"🎯 **Confidence Level:** {confidence:.2%}")
+        
+        # প্রোগ্রেস বার দিয়ে কনফিডেন্স দেখানো
+        st.progress(confidence)
