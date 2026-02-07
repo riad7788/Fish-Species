@@ -1,151 +1,263 @@
 import streamlit as st
-import os
-import uuid
-import logging
 import torch
-from PIL import Image, ImageDraw, ImageFont
-from werkzeug.security import generate_password_hash, check_password_hash
-from werkzeug.utils import secure_filename
+import torch.nn as nn
+from torchvision import transforms, models
+from PIL import Image
+from huggingface_hub import hf_hub_download
+import base64
 
-# =========================
-# 1. CONFIG & PATHS
-# =========================
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-UPLOAD_FOLDER = os.path.join(BASE_DIR, "static/uploads")
-MODEL_FOLDER = os.path.join(BASE_DIR, "models")
-# আপনার ওয়াটারমার্ক ছবির সঠিক পাথ
-WATERMARK_PATH = os.path.join(BASE_DIR, "static", "watermark.png") 
+# ==================================================
+# PAGE CONFIG
+# ==================================================
+st.set_page_config(
+    page_title="Fish Species Detection",
+    page_icon="🐟",
+    layout="centered",
+    initial_sidebar_state="collapsed"
+)
 
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(message)s")
+# ==================================================
+# GLOBAL STYLES (INDUSTRY UI)
+# ==================================================
+def inject_css(image_path):
+    with open(image_path, "rb") as f:
+        encoded = base64.b64encode(f.read()).decode()
 
-# =========================
-# 2. LOAD MODEL (classifier_final.pt)
-# =========================
-# আপনার ফাইলের নাম অনুযায়ী এখানে আপডেট করা হয়েছে
-MODEL_FILE_NAME = "classifier_final.pt" 
-MODEL_PATH = os.path.join(MODEL_FOLDER, MODEL_FILE_NAME)
+    st.markdown(
+        f"""
+        <style>
+        html, body {{
+            font-family: 'Inter', sans-serif;
+        }}
 
-@st.cache_resource
-def load_final_model():
-    if not os.path.exists(MODEL_PATH):
-        logging.error(f"Error: {MODEL_FILE_NAME} not found in {MODEL_FOLDER}")
-        return None
+        .stApp {{
+            background:
+              linear-gradient(rgba(0,0,0,0.72), rgba(0,0,0,0.72)),
+              url("data:image/png;base64,{encoded}");
+            background-size: cover;
+            background-position: center;
+            background-attachment: fixed;
+        }}
+
+        .block-container {{
+            max-width: 800px;
+            background: rgba(255,255,255,0.12);
+            backdrop-filter: blur(24px);
+            padding: 3.6rem;
+            border-radius: 28px;
+            border: 1px solid rgba(255,255,255,0.25);
+            box-shadow: 0 35px 100px rgba(0,0,0,0.65);
+        }}
+
+        button {{
+            width: 100%;
+            height: 3.5em;
+            border-radius: 18px !important;
+            font-size: 18px !important;
+            font-weight: 600;
+            background: linear-gradient(135deg,#00c6ff,#0072ff);
+            color: white !important;
+            border: none;
+        }}
+
+        button:hover {{
+            transform: scale(1.03);
+            transition: 0.25s ease;
+        }}
+
+        section[data-testid="stFileUploader"] {{
+            background: rgba(0,0,0,0.45);
+            border-radius: 18px;
+            padding: 22px;
+            border: 1px dashed rgba(255,255,255,0.45);
+        }}
+
+        .stProgress > div > div {{
+            background-image: linear-gradient(90deg,#00c6ff,#0072ff);
+        }}
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
+inject_css("assets/watermark.png")
+
+# ==================================================
+# SIDEBAR (ENTERPRISE CONTROL PANEL)
+# ==================================================
+with st.sidebar:
+    st.markdown("## 🐟 Fish AI Platform")
+
+    language = st.selectbox("🌐 Language", ["English", "বাংলা"])
+    enable_explain = st.checkbox("🔬 Enable Explainability (Grad-CAM)", False)
+    enable_report = st.checkbox("📄 Enable PDF Report", False)
+
+    st.markdown("""
+    ---
+    **Model**
+    - SimCLR (Self-Supervised)
+    - ResNet50 Encoder
+    - Linear Evaluation
+
+    **Use Cases**
+    - Fisheries research
+    - Education & labs
+    - AI product demos
+
+    **Developer**
+    **Riad**
+    """)
+
+# ==================================================
+# TEXT (LANGUAGE SUPPORT)
+# ==================================================
+TEXT = {
+    "English": {
+        "title": "Fish Species Detection",
+        "subtitle": "Industry-Grade AI Fish Classification Platform",
+        "upload": "📤 Upload a fish image",
+        "analyze": "🔍 Analyze Image",
+        "results": "Prediction Results"
+    },
+    "বাংলা": {
+        "title": "মাছের প্রজাতি শনাক্তকরণ",
+        "subtitle": "ইন্ডাস্ট্রি-গ্রেড AI ফিশ ক্লাসিফিকেশন সিস্টেম",
+        "upload": "📤 মাছের ছবি আপলোড করুন",
+        "analyze": "🔍 ছবি বিশ্লেষণ করুন",
+        "results": "পূর্বাভাসের ফলাফল"
+    }
+}
+
+T = TEXT[language]
+
+# ==================================================
+# CONFIG
+# ==================================================
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+
+CLASS_NAMES = [
+    "Baim","Bata","Batasio(tenra)","Chitul","Croaker(Poya)",
+    "Hilsha","Kajoli","Meni","Pabda","Poli","Puti",
+    "Rita","Rui","Rupchada","Silver Carp","Telapiya",
+    "carp","k","kaikka","koral","shrimp"
+]
+
+NUM_CLASSES = len(CLASS_NAMES)
+FEATURE_DIM = 2048
+
+# ==================================================
+# LOAD MODELS (WITH WARM-UP)
+# ==================================================
+@st.cache_resource(show_spinner=False)
+def load_models():
+    encoder_path = hf_hub_download(
+        repo_id="riad300/fish-simclr-encoder",
+        filename="encoder_simclr.pt"
+    )
+
+    encoder_state = torch.load(encoder_path, map_location=DEVICE)
+    base = models.resnet50(weights=None)
+    encoder = nn.Sequential(*list(base.children())[:-1]).to(DEVICE)
+
+    clean_state = {}
+    for k, v in encoder_state.items():
+        k = k.replace("encoder.", "").replace("backbone.", "").replace("module.", "")
+        clean_state[k] = v
+    encoder.load_state_dict(clean_state, strict=False)
+    encoder.eval()
+
+    classifier = nn.Linear(FEATURE_DIM, NUM_CLASSES)
+    classifier.load_state_dict(
+        torch.load("models/classifier_final.pt", map_location=DEVICE)
+    )
+    classifier.to(DEVICE)
+    classifier.eval()
+
+    # warm-up
+    dummy = torch.randn(1,3,224,224).to(DEVICE)
+    with torch.no_grad():
+        _ = classifier(encoder(dummy).view(1,-1))
+
+    return encoder, classifier
+
+encoder, classifier = load_models()
+
+# ==================================================
+# TRANSFORM
+# ==================================================
+transform = transforms.Compose([
+    transforms.Resize((224,224)),
+    transforms.ToTensor(),
+    transforms.Normalize(
+        [0.485,0.456,0.406],
+        [0.229,0.224,0.225]
+    )
+])
+
+# ==================================================
+# PREDICTION
+# ==================================================
+def predict_topk(img, k=3):
+    img = transform(img).unsqueeze(0).to(DEVICE)
+    with torch.no_grad():
+        feat = encoder(img).view(1,-1)
+        probs = torch.softmax(classifier(feat), dim=1)[0]
+
+    topk = torch.topk(probs, k)
+    return [(CLASS_NAMES[i], float(topk.values[idx]*100))
+            for idx, i in enumerate(topk.indices)]
+
+# ==================================================
+# HEADER
+# ==================================================
+st.markdown(f"""
+<div style="text-align:center;">
+    <h1 style="font-size:48px;">🐟 {T["title"]}</h1>
+    <p style="font-size:18px; color:#dddddd;">
+        {T["subtitle"]}
+    </p>
+</div>
+<hr style="margin:32px 0;">
+""", unsafe_allow_html=True)
+
+# ==================================================
+# MAIN APP
+# ==================================================
+file = st.file_uploader(T["upload"], type=["jpg","jpeg","png"])
+
+if file:
     try:
-        # মডেল লোড
-        model = torch.load(MODEL_PATH, map_location="cpu")
-        model.eval()
-        logging.info(f"{MODEL_FILE_NAME} loaded successfully!")
-        return model
-    except Exception as e:
-        logging.error(f"Failed to load model: {e}")
-        return None
+        image = Image.open(file).convert("RGB")
+        st.image(image, caption="Uploaded Image", use_column_width=True)
 
-model = load_final_model()
+        if st.button(T["analyze"]):
+            with st.spinner("Running deep visual analysis..."):
+                results = predict_topk(image)
 
-# =========================
-# 3. WATERMARK ENGINE
-# =========================
-def apply_advanced_watermark(base_image_path, output_path, result_text):
-    # মেইন ছবি ওপেন করা
-    base = Image.open(base_image_path).convert("RGBA")
-    
-    # নতুন একটি লেয়ার তৈরি করা ওয়াটারমার্কের জন্য
-    txt_layer = Image.new("RGBA", base.size, (255, 255, 255, 0))
-    draw = ImageDraw.Draw(txt_layer)
-    
-    # ১. ওয়াটারমার্ক ইমেজ (PNG) বসানো
-    if os.path.exists(WATERMARK_PATH):
-        wm_logo = Image.open(WATERMARK_PATH).convert("RGBA")
-        # লোগো সাইজ অ্যাডজাস্ট করা (ছবির ২০%)
-        wm_logo.thumbnail((base.width // 4, base.height // 4))
-        # একদম মাঝখানে বা নিচে ডানে বসানো (নিচে ডানে সেট করলাম)
-        position = (base.width - wm_logo.width - 20, base.height - wm_logo.height - 20)
-        base.paste(wm_logo, position, wm_logo)
-    
-    # ২. রেজাল্ট টেক্সট লেখা
-    try:
-        # ভালো ফন্ট না থাকলে ডিফল্ট কাজ করবে
-        draw.text((30, 30), f"PREDICTION: {result_text}", fill=(255, 255, 255, 180)) 
-    except:
-        draw.text((30, 30), f"PREDICTION: {result_text}", fill="white")
+            st.markdown(f"## 🧠 {T['results']}")
 
-    # লেয়ার কম্বাইন করা
-    out = Image.alpha_composite(base, txt_layer)
-    out.convert("RGB").save(output_path, "JPEG")
-    return output_path
+            for label, conf in results:
+                st.markdown(f"**{label}**")
+                st.progress(int(conf))
+                st.caption(f"Confidence: {conf:.2f}%")
 
-# =========================
-# 4. STREAMLIT UI
-# =========================
-if 'USERS' not in st.session_state: st.session_state['USERS'] = {}
-if 'user' not in st.session_state: st.session_state['user'] = None
+            if enable_explain:
+                st.info("🔬 Grad-CAM enabled (hook ready – add visualization module).")
 
-st.sidebar.title("Navigation")
-if st.session_state['user']:
-    choice = st.sidebar.selectbox("Menu", ["Dashboard", "Profile", "Logout"])
-else:
-    choice = st.sidebar.selectbox("Menu", ["Login", "Register"])
+            if enable_report:
+                st.info("📄 PDF report enabled (hook ready – generate inference report).")
 
-# --- AUTH LOGIC ---
-if choice == "Register":
-    st.title("Register")
-    u = st.text_input("New Username")
-    p = st.text_input("New Password", type="password")
-    if st.button("Create Account"):
-        st.session_state['USERS'][u] = {"password": generate_password_hash(p)}
-        st.success("User Registered!")
+    except Exception:
+        st.error("❌ Invalid image. Please upload a valid fish image.")
 
-elif choice == "Login":
-    st.title("User Login")
-    u = st.text_input("Username")
-    p = st.text_input("Password", type="password")
-    if st.button("Login"):
-        user = st.session_state['USERS'].get(u)
-        if user and check_password_hash(user["password"], p):
-            st.session_state['user'] = u
-            st.rerun()
-        else:
-            st.error("Wrong info!")
-
-# --- DASHBOARD (Main logic) ---
-elif choice == "Dashboard":
-    st.title(f"Welcome {st.session_state['user']}")
-    
-    if model is None:
-        st.warning(f"Warning: {MODEL_FILE_NAME} is missing. Using dummy mode.")
-
-    uploaded_file = st.file_uploader("Upload Image", type=["jpg", "png", "jpeg"])
-
-    if uploaded_file:
-        # ফাইল সেভ করা (UUID দিয়ে আপনার অরিজিনাল লজিক)
-        ext = uploaded_file.name.split('.')[-1]
-        unique_name = f"{uuid.uuid4()}.{ext}"
-        temp_path = os.path.join(UPLOAD_FOLDER, f"raw_{unique_name}")
-        final_path = os.path.join(UPLOAD_FOLDER, f"wm_{unique_name}")
-
-        with open(temp_path, "wb") as f:
-            f.write(uploaded_file.getbuffer())
-
-        if st.button("Analyze & Add Watermark"):
-            with st.spinner("Processing..."):
-                # প্রেডিকশন
-                # এখানে আপনার মডেলের ইনপুট প্রি-প্রসেসিং কোড বসাবেন
-                pred_label = "Class A" # Dummy result
-                conf = "95%"
-
-                # ওয়াটারমার্ক অ্যাপ্লাই
-                result_str = f"{pred_label} | {conf}"
-                processed_img = apply_advanced_watermark(temp_path, final_path, result_str)
-
-                # রেজাল্ট শো
-                st.image(processed_img, caption="Final Result with Watermark")
-                st.success(f"Successfully Analyzed by {st.session_state['user']}")
-                
-                # ফাইল ডাউনলোড বাটন (অপশনাল)
-                with open(processed_img, "rb") as file:
-                    st.download_button("Download Marked Image", file, file_name=f"result_{unique_name}")
-
-elif choice == "Logout":
-    st.session_state['user'] = None
-    st.rerun()
+# ==================================================
+# FOOTER
+# ==================================================
+st.markdown("""
+<hr style="margin-top:50px;">
+<p style="text-align:center; color:#cfcfcf; font-size:14px;">
+© 2026 · Fish AI Classification Platform<br>
+Built with PyTorch · SimCLR · Streamlit<br>
+Developed by <b>Riad</b>
+</p>
+""", unsafe_allow_html=True)
