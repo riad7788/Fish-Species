@@ -9,15 +9,11 @@ import pandas as pd
 import urllib.parse
 
 # ==========================================
-# ১. গ্লোবাল কনফিগ ও ইউআই (গুগল থিম)
+# ১. গ্লোবাল সেটিংস এবং থিম
 # ==========================================
-HF_EXPERT_URL = "https://huggingface.co/riad300/fish-simclr-encoder/resolve/main/fish_expert_weights.pt"
-MODEL_PATH = "models/fish_expert_weights.pt"
-os.makedirs("models", exist_ok=True)
+st.set_page_config(page_title="Fish AI - Precision Build", page_icon="🐟", layout="wide")
 
-st.set_page_config(page_title="Fish AI - Absolute Precision", page_icon="🐟", layout="wide")
-
-def apply_pro_theme():
+def apply_custom_theme():
     st.markdown("""
     <style>
     .stApp {
@@ -29,7 +25,7 @@ def apply_pro_theme():
         background: rgba(255, 255, 255, 0.05);
         backdrop-filter: blur(20px);
         border-radius: 20px; border: 1px solid #4285F4;
-        padding: 30px; color: white; margin-bottom: 20px;
+        padding: 30px; color: white;
     }
     div.stButton > button {
         background: linear-gradient(90deg, #4285F4, #34A853);
@@ -38,51 +34,49 @@ def apply_pro_theme():
     </style>
     """, unsafe_allow_html=True)
 
-apply_pro_theme()
+apply_custom_theme()
 
 # ==========================================
-# ২. আপনার নোটবুকের সঠিক ম্যাপিং (FIXED)
+# ২. আপনার নোটবুকের সঠিক সিরিয়াল (Sync with ImageFolder)
 # ==========================================
-# নোটবুক অনুযায়ী PyTorch-এর সর্টেড অর্ডার
-CLASS_NAMES = sorted([
+# PyTorch ImageFolder এর ডিফল্ট অর্ডারে এটিই সঠিক সিরিয়াল
+CLASS_NAMES = [
     "Baim", "Bata", "Batasio(tenra)", "Chitul", "Croaker(Poya)", 
     "Hilsha", "Kajoli", "Meni", "Pabda", "Poli", "Puti", 
     "Rita", "Rui", "Rupchada", "Silver Carp", "Telapiya", 
     "carp", "k", "kaikka", "koral", "shrimp"
-])
+]
 
 # ==========================================
 # ৩. ১০০% সিঙ্কড মডেল লোডার
 # ==========================================
 @st.cache_resource
 def load_expert_engine():
+    MODEL_URL = "https://huggingface.co/riad300/fish-simclr-encoder/resolve/main/fish_expert_weights.pt"
+    MODEL_PATH = "models/fish_expert_weights.pt"
+    os.makedirs("models", exist_ok=True)
+    
     if not os.path.exists(MODEL_PATH):
-        r = requests.get(HF_EXPERT_URL, stream=True)
+        r = requests.get(MODEL_URL, stream=True)
         with open(MODEL_PATH, "wb") as f:
             for chunk in r.iter_content(chunk_size=8192): f.write(chunk)
     
     try:
-        # নোটবুকের Cell-7 অনুযায়ী Sequential মডেল তৈরি
+        # নোটবুকের Cell-7 এর Sequential স্ট্রাকচার অনুযায়ী
         base = models.resnet50(weights=None)
         base.fc = nn.Identity()
         model = nn.Sequential(base, nn.Linear(2048, 21))
         
-        # ওয়েটস লোড করা (Prefix mismatch হ্যান্ডেল করা হয়েছে)
         sd = torch.load(MODEL_PATH, map_location=torch.device('cpu'))
-        new_sd = {}
-        for k, v in sd.items():
-            # 'encoder.' বা 'model.' থাকলে তা ০. দিয়ে রিপ্লেস করা (Sequential এর জন্য)
-            new_k = k.replace("encoder.", "0.").replace("model.", "0.")
-            new_sd[new_k] = v
-            
+        # কী-ক্লিনিং (Prefix fixing)
+        new_sd = {k.replace("encoder.", "0.").replace("model.", "0."): v for k, v in sd.items()}
         model.load_state_dict(new_sd, strict=False)
         model.eval()
         return model
-    except Exception as e:
-        return None
+    except: return None
 
 # ==========================================
-# ৪. মেইন অ্যাপ লজিক (লগইনসহ)
+# ৪. ড্যাশবোর্ড লজিক (লগইনসহ)
 # ==========================================
 if 'authorized' not in st.session_state: st.session_state['authorized'] = False
 
@@ -94,12 +88,12 @@ if not st.session_state['authorized']:
             st.session_state['authorized'] = True
             st.rerun()
 else:
-    st.sidebar.success("✅ Google Sync Active")
+    st.sidebar.success("✅ Neural Engine Active")
     if st.sidebar.button("Logout"):
         st.session_state['authorized'] = False
         st.rerun()
 
-    st.markdown('<div class="main-card"><h1>🐟 Fish AI Master Engine</h1><p>Synced with Google Cloud Vision & Training Dataset</p></div>', unsafe_allow_html=True)
+    st.markdown('<div class="main-card"><h1>🐟 Fish AI Master Engine</h1><p>Synced with Google Search Verification</p></div>', unsafe_allow_html=True)
     
     file = st.file_uploader("Upload Fish Image", type=["jpg", "png", "jpeg"])
     
@@ -111,7 +105,7 @@ else:
             st.image(img, use_container_width=True, caption="Specimen Image")
         
         with col2:
-            if st.button("🚀 EXECUTE ABSOLUTE PREDICTION"):
+            if st.button("🚀 EXECUTE PREDICTION"):
                 expert_model = load_expert_engine()
                 if expert_model:
                     with st.spinner("Analyzing Morphology..."):
@@ -121,7 +115,6 @@ else:
                             transforms.ToTensor(),
                             transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
                         ])
-                        
                         tensor = transform(img).unsqueeze(0)
                         
                         with torch.no_grad():
@@ -131,32 +124,24 @@ else:
                         
                         predicted_name = CLASS_NAMES[idx.item()]
                         
-                        # রেজাল্ট বক্স
+                        # রেজাল্ট ডিসপ্লে
                         st.markdown(f"""
                             <div style="background:rgba(66,133,244,0.1); border:2px solid #4285F4; padding:25px; border-radius:15px;">
                                 <h2 style="color:#4285F4; margin:0;">Specimen Name: {predicted_name}</h2>
-                                <h3 style="margin:0;">Neural Confidence: {conf.item()*100:.2f}%</h3>
+                                <h3 style="margin:0;">Confidence: {conf.item()*100:.2f}%</h3>
                             </div>
                         """, unsafe_allow_html=True)
 
-                        # --- GOOGLE SMART SYNC ---
+                        # --- গুগল সার্চ ভেরিফিকেশন ---
                         st.write("---")
-                        st.subheader("🌐 Global Verification (Google Engine)")
+                        st.subheader("🌐 Verify with Google Results")
                         search_url = f"https://www.google.com/search?q={urllib.parse.quote(predicted_name + ' fish of Bangladesh')}&tbm=isch"
                         
-                        st.warning(f"যদি প্রেডিকশন ভুল মনে হয়, তবে সরাসরি গুগলের ভিজ্যুয়াল ডেটাবেজ থেকে মিলিয়ে নিন:")
+                        st.info(f"এই প্রেডিকশনটি সঠিক কি না তা সরাসরি গুগলের আসল ছবির সাথে মিলিয়ে নিন:")
                         st.markdown(f'''
                             <a href="{search_url}" target="_blank">
                                 <button style="background-color:#EA4335; color:white; padding:15px; border:none; border-radius:10px; cursor:pointer; font-weight:bold; width:100%;">
-                                    Check Google Images for "{predicted_name}"
+                                    Open Google Images for "{predicted_name}"
                                 </button>
                             </a>
                         ''', unsafe_allow_html=True)
-                        
-                        # চার্ট
-                        st.write("#### Confidence Distribution")
-                        top5_p, top5_i = torch.topk(prob, 5)
-                        df = pd.DataFrame({'Fish': [CLASS_NAMES[i] for i in top5_i], 'Match %': top5_p.numpy()*100})
-                        st.bar_chart(df, x='Fish', y='Match %')
-
-st.markdown('<p style="text-align:center; color:gray; margin-top:80px;">© 2026 RIAD AI INDUSTRIES • ENTERPRISE GOOGLE SYNC</p>', unsafe_allow_html=True)
