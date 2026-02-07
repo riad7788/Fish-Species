@@ -8,19 +8,19 @@ from PIL import Image
 import pandas as pd
 
 # ==========================================
-# 1. CORE RESOURCE CONFIG
+# 1. RESOURCE CONFIG
 # ==========================================
 HF_EXPERT_URL = "https://huggingface.co/riad300/fish-simclr-encoder/resolve/main/fish_expert_weights.pt"
 MODEL_PATH = "models/fish_expert_weights.pt"
 os.makedirs("models", exist_ok=True)
 
-st.set_page_config(page_title="Fish AI - Expert Suite", page_icon="🐟", layout="wide")
+st.set_page_config(page_title="Fish AI - Expert Build", page_icon="🐟", layout="wide")
 
 # ==========================================
-# 2. UI & BACKGROUND FIX (Direct String)
+# 2. UI & BACKGROUND FIX (100% RECOVERY)
 # ==========================================
-def apply_pro_styling():
-    # CSS ব্র্যাকেট ফিক্স করা হয়েছে যেন ব্যাকগ্রাউন্ড মিস না হয়
+def apply_ui_theme():
+    # সরাসরি স্ট্রিং ব্যবহার করা হয়েছে যেন ব্যাকগ্রাউন্ড মিস না হয়
     st.markdown("""
     <style>
     .stApp {
@@ -32,7 +32,7 @@ def apply_pro_styling():
     .main-card {
         background: rgba(255, 255, 255, 0.05);
         backdrop-filter: blur(20px);
-        border-radius: 25px; border: 1px solid rgba(0, 194, 255, 0.2);
+        border-radius: 20px; border: 1px solid rgba(0, 194, 255, 0.3);
         padding: 40px; color: white;
     }
     div.stButton > button {
@@ -42,12 +42,13 @@ def apply_pro_styling():
     </style>
     """, unsafe_allow_html=True)
 
-apply_pro_styling()
+apply_ui_theme()
 
 # ==========================================
-# 3. VERIFIED ALPHABETICAL CLASS MAPPING
+# 3. ULTIMATE CORRECTED CLASS LIST
 # ==========================================
-# আপনার ফোল্ডারের (image_4507ca.png) একদম হুবহু সিরিয়াল এটিই:
+# আপনার ফোল্ডার লিস্ট (image_4507ca.png) অনুযায়ী পাইথন যেভাবে ইন্ডেক্স করে:
+# পাইথন প্রথমে বড় হাতের (A-Z) ফোল্ডারগুলো নেয়, তারপর ছোট হাতের (a-z) গুলো।
 CLASS_NAMES = [
     "Baim",           # 0
     "Bata",           # 1
@@ -65,7 +66,7 @@ CLASS_NAMES = [
     "Rupchada",       # 13
     "Silver Carp",    # 14
     "Telapiya",       # 15
-    "carp",           # 16
+    "carp",           # 16 (ছোট হাতের শুরু, তাই শেষে আসবে)
     "k",              # 17
     "kaikka",         # 18
     "koral",          # 19
@@ -73,7 +74,7 @@ CLASS_NAMES = [
 ]
 
 # ==========================================
-# 4. EXPERT ENGINE LOADER
+# 4. ENGINE LOADER
 # ==========================================
 @st.cache_resource
 def load_expert_engine():
@@ -85,8 +86,8 @@ def load_expert_engine():
     try:
         model = models.resnet50(weights=None)
         model.fc = nn.Linear(model.fc.in_features, 21)
-        # Key-prefix cleaning logic
         sd = torch.load(MODEL_PATH, map_location=torch.device('cpu'))
+        # Key cleaning
         clean_sd = {k.replace("encoder.", "").replace("model.", ""): v for k, v in sd.items()}
         model.load_state_dict(clean_sd, strict=False)
         model.eval()
@@ -96,71 +97,55 @@ def load_expert_engine():
 expert_model = load_expert_engine()
 
 # ==========================================
-# 5. AUTH & DASHBOARD
+# 5. DASHBOARD INTERFACE
 # ==========================================
-if 'user' not in st.session_state: st.session_state['user'] = None
+if 'user' not in st.session_state: st.session_state['user'] = "Riad"
 
 with st.sidebar:
-    st.title("🛡️ System Control")
-    if st.session_state['user']:
-        st.success(f"Verified: {st.session_state['user']}")
-        menu = st.radio("Navigation", ["Dashboard", "Logout"])
-    else:
-        menu = st.radio("Navigation", ["Login"])
+    st.title("🛡️ Secure Access")
+    st.success(f"Verified: {st.session_state['user']}")
     st.write("---")
-    st.write("Industry Grade Build 6.0")
+    st.info("Industry Grade Build 7.0")
 
-if menu == "Login":
-    st.markdown('<div class="main-card"><h2>Professional Access</h2></div>', unsafe_allow_html=True)
-    u = st.text_input("Username")
-    if st.button("Unlock"):
-        st.session_state['user'] = u
-        st.rerun()
+st.markdown('<div class="main-card"><h1>Expert Fish Analyzer</h1><p>Precision Neural Mapping Active</p></div>', unsafe_allow_html=True)
 
-elif menu == "Logout":
-    st.session_state['user'] = None
-    st.rerun()
+file = st.file_uploader("Upload Specimen", type=["jpg", "png", "jpeg"])
 
-elif menu == "Dashboard":
-    st.markdown('<div class="main-card"><h1>Expert Fish Analyzer</h1><p>Neural Pattern Recognition Active</p></div>', unsafe_allow_html=True)
+if file:
+    col1, col2 = st.columns([1, 1.2])
+    with col1:
+        img = Image.open(file).convert('RGB')
+        st.image(img, caption="Target Specimen", use_container_width=True)
     
-    file = st.file_uploader("Upload Specimen", type=["jpg", "png", "jpeg"])
-    if file:
-        col1, col2 = st.columns([1, 1.2])
-        with col1:
-            img = Image.open(file).convert('RGB')
-            st.image(img, caption="Analyzed Specimen", use_container_width=True)
-        
-        with col2:
-            if st.button("🚀 EXECUTE NEURAL ANALYSIS"):
-                if expert_model:
-                    with st.spinner("Processing..."):
-                        # Industry Standard Normalization
-                        transform = transforms.Compose([
-                            transforms.Resize(256),
-                            transforms.CenterCrop(224),
-                            transforms.ToTensor(),
-                            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-                        ])
-                        tensor = transform(img).unsqueeze(0)
-                        
-                        with torch.no_grad():
-                            out = expert_model(tensor)
-                            prob = torch.nn.functional.softmax(out[0], dim=0)
-                            conf, idx = torch.max(prob, 0)
-                        
-                        # রেজাল্ট কার্ড
-                        st.markdown(f'''
-                            <div style="border: 2px solid #00C2FF; border-radius: 15px; padding: 25px; background: rgba(0,194,255,0.1);">
-                                <h2 style="color: #00C2FF; margin:0;">Specimen: {CLASS_NAMES[idx.item()]}</h2>
-                                <h3 style="margin:0;">Precision: {conf.item()*100:.2f}%</h3>
-                            </div>
-                        ''', unsafe_allow_html=True)
-                        
-                        # Graph Breakdown
-                        top5_p, top5_i = torch.topk(prob, 5)
-                        df = pd.DataFrame({'Species': [CLASS_NAMES[i] for i in top5_i], 'Confidence (%)': top5_p.numpy()*100})
-                        st.write("#### Neural Distribution")
-                        st.bar_chart(df, x='Species', y='Confidence (%)', horizontal=True)
+    with col2:
+        if st.button("🚀 EXECUTE NEURAL DIAGNOSTICS"):
+            if expert_model:
+                with st.spinner("Mapping Morphology..."):
+                    # Standard Transformation
+                    transform = transforms.Compose([
+                        transforms.Resize(256),
+                        transforms.CenterCrop(224),
+                        transforms.ToTensor(),
+                        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+                    ])
+                                        tensor = transform(img).unsqueeze(0)
+                    
+                    with torch.no_grad():
+                        out = expert_model(tensor)
+                        prob = torch.nn.functional.softmax(out[0], dim=0)
+                        conf, idx = torch.max(prob, 0)
+                    
+                    # ফল ফলাফল প্রদর্শন
+                    st.markdown(f'''
+                        <div style="border: 2px solid #00C2FF; border-radius: 15px; padding: 25px; background: rgba(0,194,255,0.1);">
+                            <h2 style="color: #00C2FF; margin:0;">Identified Specimen: {CLASS_NAMES[idx.item()]}</h2>
+                            <h3 style="margin:0;">Precision Match: {conf.item()*100:.2f}%</h3>
+                        </div>
+                    ''', unsafe_allow_html=True)
+                    
+                    # Probability Distribution
+                    top5_p, top5_i = torch.topk(prob, 5)
+                    df = pd.DataFrame({'Species': [CLASS_NAMES[i] for i in top5_i], 'Confidence (%)': top5_p.numpy()*100})
+                    st.bar_chart(df, x='Species', y='Confidence (%)', horizontal=True)
 
-st.markdown('<p style="text-align:center; color:gray; margin-top:80px;">© 2026 RIAD AI INDUSTRIES | ENTERPRISE DEPLOYMENT</p>', unsafe_allow_html=True)
+st.markdown('<p style="text-align:center; color:gray; margin-top:80px;">© 2026 RIAD AI INDUSTRIES • CLOUD DEPLOYMENT</p>', unsafe_allow_html=True)
