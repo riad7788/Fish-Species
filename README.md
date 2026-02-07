@@ -1,9 +1,20 @@
-## Model Download
+# 🐟 Fish Species Detection and Classification
 
-The trained model file (encoder_simclr.pt) is too large to upload on GitHub.
+This project uses Self-Supervised Learning (SimCLR) and a trained classifier
+to detect and classify fish species from images.
 
-Download the model from this link:
-https://drive.google.com/file/d/1xQYBp_JHVv0MjRpU4WbRPphcNHU3NgyR/view?usp=sharing
+## Features
+- Upload fish image
+- Predict fish species
+- Confidence score
+- Streamlit web app
 
-After downloading, put the file inside:
-models/encoder_simclr.pt
+## Tech Stack
+- PyTorch
+- SimCLR
+- Streamlit
+
+## Run App
+```bash
+pip install -r requirements.txt
+streamlit run app.py
