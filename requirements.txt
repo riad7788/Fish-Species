@@ -4,5 +4,4 @@ streamlit
 huggingface_hub
 Pillow
 numpy
-flask
 werkzeug
