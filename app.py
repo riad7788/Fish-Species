@@ -9,75 +9,79 @@ import pandas as pd
 from werkzeug.security import generate_password_hash, check_password_hash
 
 # ==========================================
-# 1. SMART MODEL SELECTION (Hugging Face)
+# 1. CLOUD MODEL CONFIGURATION
 # ==========================================
-# আমরা এখন 'fish_expert_weights.pt' ব্যবহার করছি ভালো রেজাল্টের জন্য
+# সরাসরি আপনার দেওয়া Expert Weights লিঙ্ক ব্যবহার করা হচ্ছে
 HF_EXPERT_URL = "https://huggingface.co/riad300/fish-simclr-encoder/resolve/main/fish_expert_weights.pt"
-MODEL_LOCAL_PATH = "models/fish_expert_weights.pt"
+MODEL_PATH = "models/fish_expert_weights.pt"
 os.makedirs("models", exist_ok=True)
 
-st.set_page_config(page_title="Fish AI Expert", page_icon="🐟", layout="wide")
+st.set_page_config(page_title="Fish AI - Enterprise Suite", page_icon="🐟", layout="wide")
 
 # ==========================================
-# 2. UI THEME (FIXED & PROFESSIONAL)
+# 2. PREMIUM DARK UI (GLASSMORPHISM)
 # ==========================================
-def apply_theme():
+def apply_pro_styling():
     st.markdown("""
     <style>
-    .stApp {
-        background: linear-gradient(rgba(0,0,0,0.85), rgba(0,0,0,0.85)), 
-                    url("https://images.unsplash.com/photo-1524704654690-b56c05c78a00?q=80&w=2069");
-        background-size: cover; background-attachment: fixed;
-    }
-    .glass-card {
-        background: rgba(255, 255, 255, 0.05);
-        backdrop-filter: blur(15px);
-        border-radius: 20px; border: 1px solid rgba(255, 255, 255, 0.1);
-        padding: 30px; margin-bottom: 20px; color: white; text-align: center;
-    }
-    div.stButton > button {
+    .stApp {{
+        background: #0a0c10;
+        color: #ffffff;
+    }}
+    .main-card {{
+        background: rgba(255, 255, 255, 0.03);
+        backdrop-filter: blur(20px);
+        border-radius: 25px; border: 1px solid rgba(0, 194, 255, 0.2);
+        padding: 40px; margin-bottom: 25px;
+    }}
+    .res-box {{
+        background: rgba(0, 194, 255, 0.07);
+        border-left: 5px solid #00C2FF;
+        border-radius: 10px; padding: 20px;
+    }}
+    div.stButton > button {{
         background: linear-gradient(90deg, #00C2FF, #0072FF);
-        color: white; border-radius: 12px; font-weight: bold; width: 100%; height: 3.5em; border: none;
-    }
+        color: white; border: none; border-radius: 12px; height: 3.8em; font-weight: bold; width: 100%;
+        transition: 0.3s ease;
+    }}
+    div.stButton > button:hover {{ transform: scale(1.02); box-shadow: 0 0 20px rgba(0,194,255,0.4); }}
     </style>
     """, unsafe_allow_html=True)
 
-apply_theme()
+apply_pro_styling()
 
 # ==========================================
-# 3. EXPERT ENGINE (LOADS WEIGHTS CORRECTLY)
+# 3. HIGH-PRECISION MODEL LOADER
 # ==========================================
 @st.cache_resource
-def load_expert_model():
-    if not os.path.exists(MODEL_LOCAL_PATH):
+def load_expert_engine():
+    if not os.path.exists(MODEL_PATH):
         try:
-            r = requests.get(HF_EXPERT_URL)
-            with open(MODEL_LOCAL_PATH, "wb") as f:
-                f.write(r.content)
-        except: return None, "Hugging Face Sync Failed"
+            with st.spinner("🚀 Downloading Expert Neural Weights from Hugging Face..."):
+                r = requests.get(HF_EXPERT_URL, stream=True)
+                with open(MODEL_PATH, "wb") as f:
+                    for chunk in r.iter_content(chunk_size=8192):
+                        f.write(chunk)
+        except Exception as e: return None, f"Sync Failed: {str(e)}"
     
     try:
-        # ইন্ডাস্ট্রি স্ট্যান্ডার্ড ResNet50
+        # ResNet50 Architecture for 21 Classes
         model = models.resnet50(weights=None)
-        model.fc = nn.Linear(model.fc.in_features, 21) # আপনার ২১টি ক্লাস
+        model.fc = nn.Linear(model.fc.in_features, 21)
         
-        state_dict = torch.load(MODEL_LOCAL_PATH, map_location=torch.device('cpu'))
+        # State Dict Cleaning Logic (Industry Standard for SimCLR)
+        sd = torch.load(MODEL_PATH, map_location=torch.device('cpu'))
+        clean_sd = {k.replace("encoder.", "").replace("model.", ""): v for k, v in sd.items()}
         
-        # কী-মিসম্যাচ ফিক্সিং (Expert Weight loading)
-        new_state_dict = {}
-        for k, v in state_dict.items():
-            name = k.replace("encoder.", "").replace("model.", "") # সব রকম প্রিফিক্স ক্লিন করা হচ্ছে
-            new_state_dict[name] = v
-            
-        model.load_state_dict(new_state_dict, strict=False)
+        model.load_state_dict(clean_sd, strict=False)
         model.eval()
-        return model, "Expert Weights Loaded"
+        return model, "Expert Engine Operational"
     except Exception as e:
-        return None, f"Loading Error: {str(e)}"
+        return None, f"Engine Failure: {str(e)}"
 
-model, model_info = load_expert_model()
+expert_model, engine_status = load_expert_engine()
 
-# সঠিক ক্লাসের অর্ডার
+# Verified Class Names
 CLASS_NAMES = [
     "Baim", "Bata", "Batasio(tenra)", "Chitul", "Croaker(Poya)", 
     "Hilsha", "Kajoli", "Meni", "Pabda", "Poli", "Puti", 
@@ -86,74 +90,82 @@ CLASS_NAMES = [
 ]
 
 # ==========================================
-# 4. DASHBOARD & AUTH
+# 4. AUTH & SESSION
 # ==========================================
 if 'user' not in st.session_state: st.session_state['user'] = None
 
 with st.sidebar:
-    st.title("🐟 Fish AI Pro")
+    st.markdown("### 🛡️ System Control")
     if st.session_state['user']:
-        st.success(f"Expert: {st.session_state['user']}")
-        nav = st.radio("System", ["Dashboard", "Logout"])
+        st.success(f"Access Granted: {st.session_state['user']}")
+        app_mode = st.radio("Switch View", ["Neural Analyzer", "Account Settings", "Logout"])
     else:
-        nav = st.radio("System", ["Login"])
+        app_mode = st.radio("Portal Access", ["Sign In", "Register"])
+    
     st.markdown("---")
-    st.write(f"**Model Type:** {model_info}")
+    st.caption(f"**AI Status:** {engine_status}")
+    st.caption("Deployment: v3.1 Enterprise")
 
-# --- PAGES ---
-if nav == "Login":
-    st.markdown('<div class="glass-card"><h2>Expert Login</h2></div>', unsafe_allow_html=True)
+# ==========================================
+# 5. CORE LOGIC
+# ==========================================
+if app_mode == "Sign In":
+    st.markdown('<div class="main-card"><h2>Professional Login</h2></div>', unsafe_allow_html=True)
     u = st.text_input("Username")
-    if st.button("Access Engine"):
+    if st.button("Unlock Dashboard"):
         st.session_state['user'] = u
         st.rerun()
 
-elif nav == "Logout":
+elif app_mode == "Logout":
     st.session_state['user'] = None
     st.rerun()
 
-elif nav == "Dashboard":
-    st.markdown('<div class="glass-card"><h1>Deep Neural Fish Analysis</h1></div>', unsafe_allow_html=True)
+elif app_mode == "Neural Analyzer":
+    st.markdown('<div class="main-card"><h1>Deep Neural Fish Identification</h1><p>Powered by SimCLR Expert Weights</p></div>', unsafe_allow_html=True)
     
-    file = st.file_uploader("Upload Specimen Image", type=["jpg", "png", "jpeg"])
-    if file:
-        col1, col2 = st.columns([1, 1.2])
-        with col1:
-            img = Image.open(file).convert('RGB')
-            st.image(img, caption="Input Specimen", use_container_width=True)
+    source = st.file_uploader("Upload High-Res Sample", type=["jpg", "png", "jpeg"])
+    
+    if source:
+        col_img, col_data = st.columns([1, 1.2])
+        with col_img:
+            image = Image.open(source).convert('RGB')
+            st.image(image, caption="Analyzed Specimen", use_container_width=True)
         
-        with col2:
-            if st.button("🚀 EXECUTE EXPERT ANALYSIS"):
-                if model:
-                    with st.spinner("Processing Neural Layers..."):
-                        # High Precision Transform
+        with col_data:
+            if st.button("RUN EXPERT DIAGNOSTICS"):
+                if expert_model:
+                    with st.spinner("Mapping Morphology..."):
+                        # Industry Normalization
                         transform = transforms.Compose([
                             transforms.Resize((224, 224)),
                             transforms.ToTensor(),
                             transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
                         ])
-                        input_tensor = transform(img).unsqueeze(0)
+                        tensor = transform(image).unsqueeze(0)
                         
                         with torch.no_grad():
-                            output = model(input_tensor)
-                            prob = torch.nn.functional.softmax(output[0], dim=0)
-                            conf, idx = torch.max(prob, 0)
+                            logits = expert_model(tensor)
+                            probs = torch.nn.functional.softmax(logits[0], dim=0)
+                            conf, idx = torch.max(probs, 0)
                         
-                        # রেজাল্ট কার্ড
+                        # --- THE PRECISION FILTER (রেজাল্ট নির্ভুল করার চাবিকাঠি) ---
+                        if conf.item() < 0.75:
+                            st.warning("⚠️ **Reliability Alert:** Model confidence is below 75%. The specimen might be poorly lit or a non-indexed species.")
+                        
                         st.markdown(f'''
-                            <div class="glass-card" style="border: 2px solid #00C2FF;">
-                                <h2 style="color: #00C2FF; margin-bottom: 0px;">Species: {CLASS_NAMES[idx.item()]}</h2>
-                                <h3>Confidence Match: {conf.item()*100:.2f}%</h3>
+                            <div class="res-box">
+                                <h2 style="color: #00C2FF; margin:0;">Identified: {CLASS_NAMES[idx.item()]}</h2>
+                                <h3 style="margin:0; font-weight:400;">Confidence: {conf.item()*100:.2f}%</h3>
                             </div>
                         ''', unsafe_allow_html=True)
                         
-                        # প্রব্যাবিলিটি গ্রাফ (ভুল কমানোর জন্য)
-                        top5_p, top5_i = torch.topk(prob, 5)
-                        df = pd.DataFrame({
-                            'Species': [CLASS_NAMES[i] for i in top5_i],
-                            'Probability (%)': top5_p.numpy() * 100
+                        # Data Insights
+                        top_vals, top_idxs = torch.topk(probs, 5)
+                        analytics = pd.DataFrame({
+                            'Fish Species': [CLASS_NAMES[i] for i in top_idxs],
+                            'Probability (%)': top_vals.numpy() * 100
                         })
-                        st.write("#### Confidence Distribution (Top 5)")
-                        st.bar_chart(df, x='Species', y='Probability (%)', horizontal=True)
+                        st.write("#### Neural Prediction Distribution")
+                        st.bar_chart(analytics, x='Fish Species', y='Probability (%)', horizontal=True)
 
-st.markdown('<p style="text-align:center; color:gray; margin-top:100px;">© 2026 Fish Expert Systems | Market Build</p>', unsafe_allow_html=True)
+st.markdown('<p style="text-align:center; color:#4a4a4a; margin-top:80px;">© 2026 RIAD AI INDUSTRIES • SECURE CLOUD DEPLOYMENT</p>', unsafe_allow_html=True)
