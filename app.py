@@ -8,9 +8,8 @@ from PIL import Image
 import pandas as pd
 
 # ==========================================
-# 1. EXPERT RESOURCE CONFIG
+# 1. CORE RESOURCE CONFIG
 # ==========================================
-# সরাসরি আপনার দেওয়া Expert Weights লিঙ্ক ব্যবহার করা হচ্ছে
 HF_EXPERT_URL = "https://huggingface.co/riad300/fish-simclr-encoder/resolve/main/fish_expert_weights.pt"
 MODEL_PATH = "models/fish_expert_weights.pt"
 os.makedirs("models", exist_ok=True)
@@ -18,15 +17,15 @@ os.makedirs("models", exist_ok=True)
 st.set_page_config(page_title="Fish AI - Expert Suite", page_icon="🐟", layout="wide")
 
 # ==========================================
-# 2. UI & BACKGROUND FIX (PROPER SYNTAX)
+# 2. UI & BACKGROUND FIX (Direct String)
 # ==========================================
-def apply_ui_theme():
-    # CSS ব্র্যাকেট ফিক্স করা হয়েছে যেন SyntaxError না আসে
+def apply_pro_styling():
+    # CSS ব্র্যাকেট ফিক্স করা হয়েছে যেন ব্যাকগ্রাউন্ড মিস না হয়
     st.markdown("""
     <style>
     .stApp {
         background: linear-gradient(rgba(0,0,0,0.85), rgba(0,0,0,0.85)), 
-                    url("https://images.unsplash.com/photo-1524704654690-b56c05c78a00?q=80&w=2069");
+                    url("https://images.unsplash.com/photo-1524704654690-b56c05c78a00?q=80&w=2069") !important;
         background-size: cover !important;
         background-attachment: fixed !important;
     }
@@ -40,35 +39,55 @@ def apply_ui_theme():
         background: linear-gradient(90deg, #00C2FF, #0072FF);
         color: white; border-radius: 12px; height: 3.5em; font-weight: bold; width: 100%; border: none;
     }
-    [data-testid="stSidebar"] {
-        background-color: #0e1117 !important;
-    }
     </style>
     """, unsafe_allow_html=True)
 
-apply_ui_theme()
+apply_pro_styling()
 
 # ==========================================
-# 3. HIGH-PRECISION ENGINE
+# 3. VERIFIED ALPHABETICAL CLASS MAPPING
+# ==========================================
+# আপনার ফোল্ডারের (image_4507ca.png) একদম হুবহু সিরিয়াল এটিই:
+CLASS_NAMES = [
+    "Baim",           # 0
+    "Bata",           # 1
+    "Batasio(tenra)", # 2
+    "Chitul",         # 3
+    "Croaker(Poya)",  # 4
+    "Hilsha",         # 5
+    "Kajoli",         # 6
+    "Meni",           # 7
+    "Pabda",          # 8
+    "Poli",           # 9
+    "Puti",           # 10
+    "Rita",           # 11
+    "Rui",            # 12
+    "Rupchada",       # 13
+    "Silver Carp",    # 14
+    "Telapiya",       # 15
+    "carp",           # 16
+    "k",              # 17
+    "kaikka",         # 18
+    "koral",          # 19
+    "shrimp"          # 20
+]
+
+# ==========================================
+# 4. EXPERT ENGINE LOADER
 # ==========================================
 @st.cache_resource
 def load_expert_engine():
     if not os.path.exists(MODEL_PATH):
-        try:
-            r = requests.get(HF_EXPERT_URL, stream=True)
-            with open(MODEL_PATH, "wb") as f:
-                for chunk in r.iter_content(chunk_size=8192): f.write(chunk)
-        except: return None
+        r = requests.get(HF_EXPERT_URL, stream=True)
+        with open(MODEL_PATH, "wb") as f:
+            for chunk in r.iter_content(chunk_size=8192): f.write(chunk)
     
     try:
-        # ResNet50 Architecture
         model = models.resnet50(weights=None)
         model.fc = nn.Linear(model.fc.in_features, 21)
-        
-        # State Dict Cleaning
+        # Key-prefix cleaning logic
         sd = torch.load(MODEL_PATH, map_location=torch.device('cpu'))
         clean_sd = {k.replace("encoder.", "").replace("model.", ""): v for k, v in sd.items()}
-        
         model.load_state_dict(clean_sd, strict=False)
         model.eval()
         return model
@@ -76,16 +95,8 @@ def load_expert_engine():
 
 expert_model = load_expert_engine()
 
-# আপনার ভেরিফাইড ক্লাস লিস্ট
-CLASS_NAMES = [
-    "Baim", "Bata", "Batasio(tenra)", "Chitul", "Croaker(Poya)", 
-    "Hilsha", "Kajoli", "Meni", "Pabda", "Poli", "Puti", 
-    "Rita", "Rui", "Rupchada", "Silver Carp", "Telapiya", 
-    "carp", "k", "kaikka", "koral", "shrimp"
-]
-
 # ==========================================
-# 4. NAVIGATION & AUTH
+# 5. AUTH & DASHBOARD
 # ==========================================
 if 'user' not in st.session_state: st.session_state['user'] = None
 
@@ -97,15 +108,12 @@ with st.sidebar:
     else:
         menu = st.radio("Navigation", ["Login"])
     st.write("---")
-    st.write("Industry Grade Build 5.0")
+    st.write("Industry Grade Build 6.0")
 
-# ==========================================
-# 5. CORE INTERFACE
-# ==========================================
 if menu == "Login":
-    st.markdown('<div class="main-card"><h2>Professional Login</h2></div>', unsafe_allow_html=True)
+    st.markdown('<div class="main-card"><h2>Professional Access</h2></div>', unsafe_allow_html=True)
     u = st.text_input("Username")
-    if st.button("Unlock System"):
+    if st.button("Unlock"):
         st.session_state['user'] = u
         st.rerun()
 
@@ -114,9 +122,9 @@ elif menu == "Logout":
     st.rerun()
 
 elif menu == "Dashboard":
-    st.markdown('<div class="main-card"><h1>Deep Neural Fish Analyzer</h1><p>High-Accuracy Expert Build</p></div>', unsafe_allow_html=True)
+    st.markdown('<div class="main-card"><h1>Expert Fish Analyzer</h1><p>Neural Pattern Recognition Active</p></div>', unsafe_allow_html=True)
     
-    file = st.file_uploader("Upload Fish Specimen", type=["jpg", "png", "jpeg"])
+    file = st.file_uploader("Upload Specimen", type=["jpg", "png", "jpeg"])
     if file:
         col1, col2 = st.columns([1, 1.2])
         with col1:
@@ -126,7 +134,7 @@ elif menu == "Dashboard":
         with col2:
             if st.button("🚀 EXECUTE NEURAL ANALYSIS"):
                 if expert_model:
-                    with st.spinner("Decoding Morphology..."):
+                    with st.spinner("Processing..."):
                         # Industry Standard Normalization
                         transform = transforms.Compose([
                             transforms.Resize(256),
@@ -141,7 +149,7 @@ elif menu == "Dashboard":
                             prob = torch.nn.functional.softmax(out[0], dim=0)
                             conf, idx = torch.max(prob, 0)
                         
-                        # High Precision UI
+                        # রেজাল্ট কার্ড
                         st.markdown(f'''
                             <div style="border: 2px solid #00C2FF; border-radius: 15px; padding: 25px; background: rgba(0,194,255,0.1);">
                                 <h2 style="color: #00C2FF; margin:0;">Specimen: {CLASS_NAMES[idx.item()]}</h2>
@@ -149,10 +157,10 @@ elif menu == "Dashboard":
                             </div>
                         ''', unsafe_allow_html=True)
                         
-                        # Graph Analytics
+                        # Graph Breakdown
                         top5_p, top5_i = torch.topk(prob, 5)
                         df = pd.DataFrame({'Species': [CLASS_NAMES[i] for i in top5_i], 'Confidence (%)': top5_p.numpy()*100})
-                        st.write("#### Neural Breakdown")
+                        st.write("#### Neural Distribution")
                         st.bar_chart(df, x='Species', y='Confidence (%)', horizontal=True)
 
-st.markdown('<p style="text-align:center; color:gray; margin-top:80px;">© 2026 Fish AI Global Enterprise • Secure Expert Build</p>', unsafe_allow_html=True)
+st.markdown('<p style="text-align:center; color:gray; margin-top:80px;">© 2026 RIAD AI INDUSTRIES | ENTERPRISE DEPLOYMENT</p>', unsafe_allow_html=True)
