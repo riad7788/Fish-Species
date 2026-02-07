@@ -6,18 +6,18 @@ from PIL import Image
 from huggingface_hub import hf_hub_download
 import base64
 
-# --------------------------------------------------
+# ==================================================
 # PAGE CONFIG
-# --------------------------------------------------
+# ==================================================
 st.set_page_config(
     page_title="Fish Species Detection",
     page_icon="🐟",
     layout="centered"
 )
 
-# --------------------------------------------------
-# BACKGROUND + WATERMARK
-# --------------------------------------------------
+# ==================================================
+# BACKGROUND + GLASS UI
+# ==================================================
 def add_bg(image_path):
     with open(image_path, "rb") as f:
         encoded = base64.b64encode(f.read()).decode()
@@ -26,23 +26,48 @@ def add_bg(image_path):
         f"""
         <style>
         .stApp {{
-            background-image: url("data:image/png;base64,{encoded}");
+            background:
+              linear-gradient(rgba(0,0,0,0.55), rgba(0,0,0,0.55)),
+              url("data:image/png;base64,{encoded}");
             background-size: cover;
             background-position: center;
-            background-repeat: no-repeat;
+            background-attachment: fixed;
         }}
 
         .block-container {{
-            background-color: rgba(255, 255, 255, 0.88);
-            padding: 2.5rem;
-            border-radius: 18px;
-            box-shadow: 0 10px 40px rgba(0,0,0,0.15);
+            max-width: 720px;
+            background: rgba(255, 255, 255, 0.15);
+            backdrop-filter: blur(18px);
+            -webkit-backdrop-filter: blur(18px);
+            padding: 3rem;
+            border-radius: 22px;
+            border: 1px solid rgba(255,255,255,0.25);
+            box-shadow: 0 20px 60px rgba(0,0,0,0.45);
         }}
 
+        /* Buttons */
         button {{
-            border-radius: 12px !important;
-            height: 3em;
+            width: 100%;
+            height: 3.2em;
+            border-radius: 14px !important;
             font-size: 18px !important;
+            font-weight: 600;
+            background: linear-gradient(135deg,#00c6ff,#0072ff);
+            color: white !important;
+            border: none;
+        }}
+
+        button:hover {{
+            transform: scale(1.02);
+            transition: 0.2s ease;
+        }}
+
+        /* File uploader */
+        section[data-testid="stFileUploader"] {{
+            background: rgba(0,0,0,0.35);
+            border-radius: 14px;
+            padding: 18px;
+            border: 1px dashed rgba(255,255,255,0.4);
         }}
         </style>
         """,
@@ -51,9 +76,9 @@ def add_bg(image_path):
 
 add_bg("assets/watermark.png")
 
-# --------------------------------------------------
+# ==================================================
 # CONFIG
-# --------------------------------------------------
+# ==================================================
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 CLASS_NAMES = [
@@ -66,13 +91,13 @@ CLASS_NAMES = [
 NUM_CLASSES = len(CLASS_NAMES)
 FEATURE_DIM = 2048
 
-# --------------------------------------------------
+# ==================================================
 # LOAD MODELS
-# --------------------------------------------------
+# ==================================================
 @st.cache_resource
 def load_models():
 
-    # -------- ENCODER --------
+    # -------- Encoder (SimCLR ResNet50) --------
     encoder_path = hf_hub_download(
         repo_id="riad300/fish-simclr-encoder",
         filename="encoder_simclr.pt"
@@ -92,7 +117,7 @@ def load_models():
     encoder.load_state_dict(clean_state, strict=False)
     encoder.eval()
 
-    # -------- CLASSIFIER --------
+    # -------- Classifier --------
     classifier = nn.Linear(FEATURE_DIM, NUM_CLASSES)
     classifier.load_state_dict(
         torch.load("models/classifier_final.pt", map_location=DEVICE)
@@ -104,9 +129,9 @@ def load_models():
 
 encoder, classifier = load_models()
 
-# --------------------------------------------------
+# ==================================================
 # IMAGE TRANSFORM
-# --------------------------------------------------
+# ==================================================
 transform = transforms.Compose([
     transforms.Resize((224, 224)),
     transforms.ToTensor(),
@@ -116,9 +141,9 @@ transform = transforms.Compose([
     )
 ])
 
-# --------------------------------------------------
-# PREDICT FUNCTION
-# --------------------------------------------------
+# ==================================================
+# PREDICTION
+# ==================================================
 def predict(img):
     img = transform(img).unsqueeze(0).to(DEVICE)
 
@@ -131,15 +156,17 @@ def predict(img):
     idx = prob.argmax(1).item()
     return CLASS_NAMES[idx], prob[0][idx].item() * 100
 
-# --------------------------------------------------
+# ==================================================
 # UI
-# --------------------------------------------------
+# ==================================================
 st.markdown("""
-<h1 style='text-align:center;'>🐟 Fish Species Detection</h1>
-<p style='text-align:center; color:gray; font-size:17px;'>
-AI-powered Fish Classification using SimCLR + ResNet50
-</p>
-<hr>
+<div style="text-align:center;">
+    <h1 style="font-size:42px; margin-bottom:5px;">🐟 Fish Species Detection</h1>
+    <p style="font-size:18px; color:#e0e0e0;">
+        AI-powered Fish Classification using SimCLR & ResNet50
+    </p>
+</div>
+<hr style="margin-top:25px; margin-bottom:30px;">
 """, unsafe_allow_html=True)
 
 file = st.file_uploader(
@@ -153,34 +180,41 @@ if file:
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    if st.button("🔍 Predict Species", use_container_width=True):
+    if st.button("🔍 Predict Species"):
         with st.spinner("Analyzing image..."):
             label, conf = predict(image)
 
         st.markdown(
             f"""
             <div style="
-                background: rgba(0, 136, 204, 0.12);
-                padding: 25px;
-                border-radius: 15px;
-                text-align: center;
-                margin-top: 25px;
+                margin-top:30px;
+                padding:25px;
+                border-radius:18px;
+                background: linear-gradient(
+                    135deg,
+                    rgba(0,114,255,0.25),
+                    rgba(0,198,255,0.25)
+                );
+                text-align:center;
+                box-shadow: inset 0 0 25px rgba(255,255,255,0.15);
             ">
-                <h3>🐠 Predicted Species</h3>
-                <h2 style="color:#007acc;">{label}</h2>
-                <p style="font-size:18px;">Confidence: <b>{conf:.2f}%</b></p>
+                <p style="font-size:14px; letter-spacing:1px;">PREDICTED SPECIES</p>
+                <h2 style="font-size:34px;">{label}</h2>
+                <p style="font-size:18px;">
+                    Confidence: <b>{conf:.2f}%</b>
+                </p>
             </div>
             """,
             unsafe_allow_html=True
         )
 
-# --------------------------------------------------
+# ==================================================
 # FOOTER
-# --------------------------------------------------
+# ==================================================
 st.markdown("""
-<hr>
-<p style='text-align:center; color:gray; font-size:14px;'>
-© 2026 | Fish AI Classification System <br>
-Developed by Riad
+<hr style="margin-top:40px;">
+<p style="text-align:center; color:#ccc; font-size:14px;">
+© 2026 · Fish AI Classification System<br>
+Developed by <b>Riad</b>
 </p>
 """, unsafe_allow_html=True)
