@@ -1,6 +1,7 @@
 import streamlit as st
 import torch
-from torchvision import transforms
+import torch.nn as nn
+from torchvision import transforms, models
 from PIL import Image
 from huggingface_hub import hf_hub_download
 
@@ -16,8 +17,18 @@ CLASS_NAMES = [
     "carp","k","kaikka","koral","shrimp"
 ]
 
-ENCODER_URL = "https://huggingface.co/riad300/fish-simclr-encoder/resolve/main/encoder_simclr.pt"
-CLASSIFIER_PATH = "models/classifier_final.pt"
+# -------------------------
+# ENCODER ARCHITECTURE
+# -------------------------
+class SimCLREncoder(nn.Module):
+    def __init__(self):
+        super().__init__()
+        base = models.resnet50(weights=None)
+        self.encoder = nn.Sequential(*list(base.children())[:-1])
+
+    def forward(self, x):
+        x = self.encoder(x)
+        return x.view(x.size(0), -1)  # [B, 2048]
 
 # -------------------------
 # LOAD MODELS
@@ -25,18 +36,25 @@ CLASSIFIER_PATH = "models/classifier_final.pt"
 @st.cache_resource
 def load_models():
 
-    # ─── ENCODER FROM HF URL ─────────────────────────────────────────────
-    # download the file once and cache it
-    encoder_file = hf_hub_download(
+    # ⬇️ Download encoder weights from HF
+    encoder_path = hf_hub_download(
         repo_id="riad300/fish-simclr-encoder",
         filename="encoder_simclr.pt"
     )
 
-    encoder = torch.load(encoder_file, map_location=DEVICE)
+    encoder = SimCLREncoder()
+    encoder.load_state_dict(
+        torch.load(encoder_path, map_location=DEVICE)
+    )
+    encoder.to(DEVICE)
     encoder.eval()
 
-    # ─── LOCAL CLASSIFIER ───────────────────────────────────────────────
-    classifier = torch.load(CLASSIFIER_PATH, map_location=DEVICE)
+    # ⬇️ Load classifier (trained on top of encoder)
+    classifier = torch.load(
+        "models/classifier_final.pt",
+        map_location=DEVICE
+    )
+    classifier.to(DEVICE)
     classifier.eval()
 
     return encoder, classifier
@@ -45,45 +63,45 @@ def load_models():
 encoder, classifier = load_models()
 
 # -------------------------
-# IMAGE TRANSFORMS
+# IMAGE TRANSFORM
 # -------------------------
 transform = transforms.Compose([
-    transforms.Resize((224, 224)),
+    transforms.Resize((224,224)),
     transforms.ToTensor(),
-    transforms.Normalize([0.485,0.456,0.406], [0.229,0.224,0.225])
+    transforms.Normalize(
+        [0.485,0.456,0.406],
+        [0.229,0.224,0.225]
+    )
 ])
 
 # -------------------------
-# PREDICTION
+# PREDICT
 # -------------------------
 def predict(img):
-    img_t = transform(img).unsqueeze(0).to(DEVICE)
+    img = transform(img).unsqueeze(0).to(DEVICE)
 
     with torch.no_grad():
-        feat = encoder(img_t)
+        feat = encoder(img)
         out = classifier(feat)
-        probs = torch.softmax(out, dim=1)
+        prob = torch.softmax(out, dim=1)
 
-    conf, idx = torch.max(probs, dim=1)
-    return CLASS_NAMES[idx.item()], conf.item() * 100
+    idx = prob.argmax(1).item()
+    return CLASS_NAMES[idx], prob[0][idx].item() * 100
 
 # -------------------------
 # STREAMLIT UI
 # -------------------------
-st.set_page_config(page_title="Fish Species Detection", layout="centered")
+st.set_page_config("Fish Species Detection")
 
 st.title("🐟 Fish Species Detection & Classification")
-st.write("Upload an image and AI will predict the fish species.")
 
-uploaded = st.file_uploader("Choose a fish image", type=["jpg", "jpeg", "png"])
+file = st.file_uploader("Upload Fish Image", ["jpg","png","jpeg"])
 
-if uploaded:
-    image = Image.open(uploaded).convert("RGB")
-    st.image(image, caption="Uploaded Image", use_column_width=True)
+if file:
+    img = Image.open(file).convert("RGB")
+    st.image(img, use_column_width=True)
 
     if st.button("Predict"):
-        with st.spinner("Predicting..."):
-            label, confidence = predict(image)
-
-        st.success(f"**Prediction:** {label}")
-        st.info(f"**Confidence:** {confidence:.2f}%")
+        label, conf = predict(img)
+        st.success(f"🐠 Species: {label}")
+        st.info(f"📊 Confidence: {conf:.2f}%")
