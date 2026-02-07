@@ -5,163 +5,179 @@ import logging
 import torch
 from PIL import Image, ImageDraw, ImageFont
 from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.utils import secure_filename
 
 # =========================
-# 1. CONFIG & LOGGING
+# 1. BASIC CONFIG & LOGGING
 # =========================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_FOLDER = os.path.join(BASE_DIR, "static/uploads")
+MODEL_FOLDER = os.path.join(BASE_DIR, "models")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(message)s")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 
 # Page Config
 st.set_page_config(page_title="Fish AI Platform", layout="wide")
 
 # =========================
-# 2. FIXED CUSTOM CSS (হুবহু ছবির মতো ডিজাইন)
+# 2. SESSION STATE (Flask এর মত ডাটা ধরে রাখা)
+# =========================
+if 'USERS' not in st.session_state: st.session_state['USERS'] = {}
+if 'user' not in st.session_state: st.session_state['user'] = None
+
+# =========================
+# 3. CUSTOM CSS (Design logic)
 # =========================
 def local_css():
     st.markdown("""
     <style>
-    /* ব্যাকগ্রাউন্ড সেটআপ */
     .stApp {
-        background: linear-gradient(rgba(0,0,0,0.6), rgba(0,0,0,0.6)), 
+        background: linear-gradient(rgba(0,0,0,0.7), rgba(0,0,0,0.7)), 
                     url("https://images.unsplash.com/photo-1524704654690-b56c05c78a00?q=80&w=2069");
         background-size: cover;
-        background-position: center;
         background-attachment: fixed;
     }
-    
-    /* গ্লাস কার্ড স্টাইল */
     .glass-card {
-        background: rgba(255, 255, 255, 0.1);
+        background: rgba(255, 255, 255, 0.08);
         backdrop-filter: blur(15px);
-        -webkit-backdrop-filter: blur(15px);
         border-radius: 20px;
-        border: 1px solid rgba(255, 255, 255, 0.2);
-        padding: 50px;
-        margin: 20px auto;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        padding: 40px;
+        margin: 10px auto;
         text-align: center;
         color: white;
-        max-width: 800px;
     }
-
-    /* সাইডবার ডার্ক লুক */
-    [data-testid="stSidebar"] {
-        background-color: #161a24;
-    }
-
-    /* বাটন ডিজাইন */
+    [data-testid="stSidebar"] { background-color: #11141c; }
     div.stButton > button {
-        background: #00a0ff;
-        color: white;
-        border-radius: 8px;
-        border: none;
-        width: 100%;
-        font-weight: bold;
+        background: linear-gradient(90deg, #00C2FF, #0072FF);
+        color: white; border: none; border-radius: 8px; width: 100%;
     }
     </style>
-    """, unsafe_allow_html=True) # এখানে ভুল ছিল, এখন ঠিক করা হয়েছে
+    """, unsafe_allow_html=True)
 
 local_css()
 
 # =========================
-# 3. LOAD MODEL (classifier_final.pt)
+# 4. LOAD MODEL (classifier_final.pt)
 # =========================
-MODEL_PATH = os.path.join(BASE_DIR, "models", "classifier_final.pt")
+MODEL_PATH = os.path.join(MODEL_FOLDER, "classifier_final.pt")
 
 @st.cache_resource
-def load_my_model():
+def load_model():
     if os.path.exists(MODEL_PATH):
         try:
-            model = torch.load(MODEL_PATH, map_location="cpu")
-            model.eval()
-            return model
+            m = torch.load(MODEL_PATH, map_location="cpu")
+            m.eval()
+            logging.info("Model classifier_final.pt loaded successfully")
+            return m
         except Exception as e:
-            logging.error(f"Model Error: {e}")
+            logging.error(f"Model load failed: {e}")
     return None
 
-model = load_my_model()
+model = load_model()
 
 # =========================
-# 4. SIDEBAR (ছবির মতো মেনু)
+# 5. SIDEBAR (Navigation & Features)
 # =========================
 with st.sidebar:
-    st.markdown("### 🐟 Fish AI Platform")
-    st.selectbox("Language", ["English", "Bengali"])
+    st.markdown("## 🐟 Fish AI Platform")
+    if st.session_state['user']:
+        st.success(f"Logged in: {st.session_state['user']}")
+        choice = st.radio("Navigate", ["Dashboard", "Profile", "Logout"])
+    else:
+        choice = st.radio("Navigate", ["Home", "Login", "Register"])
     
-    st.checkbox("Enable Explainability (Grad-CAM)")
+    st.markdown("---")
+    st.markdown("**Settings**")
+    st.checkbox("Enable Explainability", value=True)
     st.checkbox("Enable PDF Report")
-    
     st.markdown("---")
-    st.markdown("**Model Details**")
-    st.write("• ResNet50 Encoder\n• Linear Evaluation")
-    
-    st.markdown("---")
-    st.markdown("**Developed by Riad**")
+    st.write("Developed by Riad")
 
 # =========================
-# 5. MAIN CONTENT
+# 6. APP LOGIC (Routes)
 # =========================
 
-if 'user' not in st.session_state:
-    st.session_state['user'] = None
+# --- HOME ---
+if choice == "Home":
+    st.markdown('<div class="glass-card"><h1>Welcome to Fish AI</h1><p>Industry-Grade Classification</p></div>', unsafe_allow_html=True)
 
-if st.session_state['user'] is None:
-    # লগইন বক্স (গ্লাস ইফেক্ট)
+# --- REGISTER ---
+elif choice == "Register":
     st.markdown('<div class="glass-card">', unsafe_allow_html=True)
-    st.header("🔑 Login to Platform")
-    user_in = st.text_input("Username")
-    pass_in = st.text_input("Password", type="password")
-    if st.button("Enter Platform"):
-        st.session_state['user'] = user_in
-        st.rerun()
+    st.subheader("Create Account")
+    reg_u = st.text_input("Username")
+    reg_p = st.text_input("Password", type="password")
+    if st.button("Register Now"):
+        if reg_u in st.session_state['USERS']: st.error("User exists!")
+        else:
+            st.session_state['USERS'][reg_u] = {"password": generate_password_hash(reg_p)}
+            st.success("Registered! Go to Login.")
+            logging.info(f"User Registered: {reg_u}")
     st.markdown('</div>', unsafe_allow_html=True)
 
-else:
-    # মেইন ড্যাশবোর্ড (ছবির মতো লুক)
-    st.markdown(f"""
-    <div class="glass-card">
-        <h1>🐟 Fish Species Detection</h1>
-        <p>Industry-Grade AI Fish Classification Platform</p>
-        <hr style="border: 0.5px solid rgba(255,255,255,0.2)">
-    </div>
-    """, unsafe_allow_html=True)
+# --- LOGIN ---
+elif choice == "Login":
+    st.markdown('<div class="glass-card">', unsafe_allow_html=True)
+    st.subheader("User Login")
+    u = st.text_input("Username")
+    p = st.text_input("Password", type="password")
+    if st.button("Login"):
+        user_data = st.session_state['USERS'].get(u)
+        if user_data and check_password_hash(user_data["password"], p):
+            st.session_state['user'] = u
+            st.rerun()
+        else: st.error("Invalid credentials")
+    st.markdown('</div>', unsafe_allow_html=True)
 
-    # ফাইল আপলোড অংশ
-    uploaded_file = st.file_uploader("", type=["jpg", "png", "jpeg"])
+# --- LOGOUT ---
+elif choice == "Logout":
+    st.session_state['user'] = None
+    st.rerun()
 
-    if uploaded_file:
-        # UUID দিয়ে ফাইল সেভ লজিক
-        ext = uploaded_file.name.split('.')[-1]
-        unique_name = f"{uuid.uuid4()}.{ext}"
-        save_path = os.path.join(UPLOAD_FOLDER, unique_name)
+# --- PROFILE ---
+elif choice == "Profile":
+    st.markdown(f'<div class="glass-card"><h2>Profile</h2><p>Username: {st.session_state["user"]}</p></div>', unsafe_allow_html=True)
+
+# --- DASHBOARD (Main Functionality) ---
+elif choice == "Dashboard":
+    st.markdown('<div class="glass-card"><h1>🐟 Fish Species Detection</h1><p>Upload a fish image for AI analysis</p></div>', unsafe_allow_html=True)
+    
+    file = st.file_uploader("", type=["jpg", "png", "jpeg"])
+    
+    if file:
+        # UUID & Secure Filename (আপনার অরিজিনাল লজিক)
+        fname = secure_filename(file.name)
+        unique_name = f"{uuid.uuid4()}_{fname}"
+        path = os.path.join(UPLOAD_FOLDER, unique_name)
         
-        with open(save_path, "wb") as f:
-            f.write(uploaded_file.getbuffer())
+        with open(path, "wb") as f:
+            f.write(file.getbuffer())
+        
+        st.image(file, width=400, caption="Uploaded Image")
+        
+        if st.button("Analyze & Detect"):
+            if model:
+                # Prediction Logic
+                with st.spinner("Processing..."):
+                    res_class = "Class A" # Dummy
+                    conf = 0.92
+                    
+                    st.markdown(f"""
+                    <div class="glass-card">
+                        <h3>Prediction: {res_class}</h3>
+                        <h4>Confidence: {conf*100}%</h4>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    logging.info(f"Prediction by {st.session_state['user']}: {res_class}")
+            else:
+                st.error("Model (classifier_final.pt) not found in /models folder!")
 
-        st.image(uploaded_file, width=300)
-
-        if st.button("Browse files & Predict"):
-            with st.spinner("Analyzing Fish Species..."):
-                # আপনার মডেল থেকে রেজাল্ট আসবে এখানে
-                res_class = "Salmon" # Dummy
-                conf = "98.5%"
-                
-                st.markdown(f"""
-                <div class="glass-card" style="padding: 20px;">
-                    <h3>Result: {res_class}</h3>
-                    <p>Confidence: {conf}</p>
-                </div>
-                """, unsafe_allow_html=True)
-                logging.info(f"User {st.session_state['user']} predicted: {res_class}")
-
-    # ফুটার (ছবির নিচের টেক্সট)
-    st.markdown("""
-    <div style="text-align: center; color: rgba(255,255,255,0.5); font-size: 13px; margin-top: 30px;">
-        © 2026 • Fish AI Classification Platform<br>
-        Built with PyTorch • SimCLR • Streamlit<br>
-        Developed by Riad
-    </div>
-    """, unsafe_allow_html=True)
+# --- FOOTER ---
+st.markdown("""
+<div style="text-align: center; color: rgba(255,255,255,0.4); font-size: 12px; margin-top: 50px;">
+    © 2026 • Fish AI Classification Platform<br>
+    Built with PyTorch • SimCLR • Streamlit • Developed by Riad
+</div>
+""", unsafe_allow_html=True)
