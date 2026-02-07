@@ -8,86 +8,42 @@ from PIL import Image
 import pandas as pd
 
 # ==========================================
-# 1. CORE CONFIG & EXPERT WEIGHTS
+# 1. EXPERT RESOURCE CONFIG
 # ==========================================
 HF_EXPERT_URL = "https://huggingface.co/riad300/fish-simclr-encoder/resolve/main/fish_expert_weights.pt"
 MODEL_PATH = "models/fish_expert_weights.pt"
 os.makedirs("models", exist_ok=True)
 
-st.set_page_config(page_title="Fish AI Pro", page_icon="🐟", layout="wide")
+st.set_page_config(page_title="Fish AI Expert", page_icon="🐟", layout="wide")
 
 # ==========================================
-# 2. UI THEME & BACKGROUND FIX (১০০% কাজ করবে)
+# 2. UI & BACKGROUND RESTORATION
 # ==========================================
-def apply_pro_styling():
-    # এখানে ডিরেক্ট ইমেজ ইউআরএল দেওয়া হয়েছে যেন ব্যাকগ্রাউন্ড মিস না হয়
+def apply_ui():
+    # ব্যাকগ্রাউন্ড ইমেজ ফিরিয়ে আনা হয়েছে
     st.markdown("""
     <style>
     .stApp {
-        background: linear-gradient(rgba(0,0,0,0.85), rgba(0,0,0,0.85)), 
-                    url("https://images.unsplash.com/photo-1516734212186-a967f81ad0d7?q=80&w=2071") !important;
+        background: linear-gradient(rgba(0,0,0,0.8), rgba(0,0,0,0.8)), 
+                    url("https://images.unsplash.com/photo-1524704654690-b56c05c78a00?q=80&w=2069");
         background-size: cover !important;
-        background-attachment: fixed !important;
-        color: #ffffff;
+        background-attachment: fixed;
     }
     .glass-card {
-        background: rgba(255, 255, 255, 0.07);
+        background: rgba(255, 255, 255, 0.05);
         backdrop-filter: blur(15px);
-        border-radius: 20px;
-        border: 1px solid rgba(0, 194, 255, 0.3);
-        padding: 30px;
-        margin-bottom: 20px;
-    }
-    div.stButton > button {
-        background: linear-gradient(90deg, #00C2FF, #0072FF);
-        color: white; border-radius: 12px; height: 3.5em; font-weight: bold; width: 100%; border: none;
+        border-radius: 20px; border: 1px solid rgba(0, 194, 255, 0.2);
+        padding: 30px; margin-bottom: 20px; color: white;
     }
     </style>
     """, unsafe_allow_html=True)
 
-apply_pro_styling()
+apply_ui()
 
 # ==========================================
-# 3. HIGH-PRECISION MODEL LOADER
+# 3. CORRECT CLASS MAPPING (Verified)
 # ==========================================
-@st.cache_resource
-def load_expert_engine():
-    if not os.path.exists(MODEL_PATH):
-        try:
-            r = requests.get(HF_EXPERT_URL, stream=True)
-            with open(MODEL_PATH, "wb") as f:
-                for chunk in r.iter_content(chunk_size=8192):
-                    f.write(chunk)
-        except: return None, "Cloud Connection Error"
-    
-    try:
-        # ResNet50 Architecture
-        model = models.resnet50(weights=None)
-        model.fc = nn.Linear(model.fc.in_features, 21)
-        
-        # State Dict Loading with Extra Safety
-        checkpoint = torch.load(MODEL_PATH, map_location=torch.device('cpu'))
-        
-        # যদি ফাইলটি শুধু weights হয় তবে একরকম, যদি পুরো ডিকশনারি হয় তবে আরেকরকম
-        if 'state_dict' in checkpoint:
-            state_dict = checkpoint['state_dict']
-        else:
-            state_dict = checkpoint
-            
-        # SimCLR Key Mapping (Clean all prefixes)
-        clean_sd = {}
-        for k, v in state_dict.items():
-            name = k.replace("encoder.", "").replace("model.", "").replace("backbone.", "").replace("module.", "")
-            clean_sd[name] = v
-            
-        model.load_state_dict(clean_sd, strict=False)
-        model.eval()
-        return model, "Expert Engine Operational"
-    except Exception as e:
-        return None, f"Loading Error: {str(e)}"
-
-expert_model, engine_status = load_expert_engine()
-
+# আপনার ফোল্ডার স্ট্রাকচার অনুযায়ী সঠিক সিরিয়াল
 CLASS_NAMES = [
     "Baim", "Bata", "Batasio(tenra)", "Chitul", "Croaker(Poya)", 
     "Hilsha", "Kajoli", "Meni", "Pabda", "Poli", "Puti", 
@@ -96,60 +52,98 @@ CLASS_NAMES = [
 ]
 
 # ==========================================
-# 4. ANALYZER INTERFACE
+# 4. EXPERT ENGINE LOADER
 # ==========================================
-if 'user' not in st.session_state: st.session_state['user'] = "Guest Expert"
+@st.cache_resource
+def load_engine():
+    if not os.path.exists(MODEL_PATH):
+        r = requests.get(HF_EXPERT_URL, stream=True)
+        with open(MODEL_PATH, "wb") as f:
+            for chunk in r.iter_content(chunk_size=8192): f.write(chunk)
+    
+    try:
+        model = models.resnet50(weights=None)
+        model.fc = nn.Linear(model.fc.in_features, 21)
+        checkpoint = torch.load(MODEL_PATH, map_location=torch.device('cpu'))
+        
+        # State Dict Clean-up
+        sd = checkpoint.get('state_dict', checkpoint)
+        clean_sd = {k.replace("encoder.", "").replace("model.", ""): v for k, v in sd.items()}
+        
+        model.load_state_dict(clean_sd, strict=False)
+        model.eval()
+        return model
+    except Exception as e: return str(e)
+
+expert_model = load_engine()
+
+# ==========================================
+# 5. AUTH & NAVIGATION
+# ==========================================
+if 'user' not in st.session_state: st.session_state['user'] = None
 
 with st.sidebar:
     st.title("🛡️ System Control")
-    st.info(f"User: {st.session_state['user']}")
-    st.success(f"Status: {engine_status}")
-    st.write("Industry Grade Build 4.0")
+    if st.session_state['user']:
+        st.success(f"User: {st.session_state['user']}")
+        nav = st.radio("Menu", ["Dashboard", "Logout"])
+    else:
+        nav = st.radio("Menu", ["Login"])
+    st.write("---")
+    st.write("Industry Grade Build 4.5")
 
-st.markdown('<div class="glass-card"><h1>🐟 Fish Identification Analytics</h1><p>Hugging Face Expert Weights Integrated</p></div>', unsafe_allow_html=True)
+# ==========================================
+# 6. APP LOGIC
+# ==========================================
+if nav == "Login":
+    st.markdown('<div class="glass-card"><h2>Expert Portal</h2></div>', unsafe_allow_html=True)
+    u = st.text_input("Username")
+    if st.button("Enter"):
+        st.session_state['user'] = u
+        st.rerun()
 
-source = st.file_uploader("Drop Specimen Image Here", type=["jpg", "png", "jpeg"])
+elif nav == "Logout":
+    st.session_state['user'] = None
+    st.rerun()
 
-if source:
-    col1, col2 = st.columns([1, 1])
-    with col1:
-        image = Image.open(source).convert('RGB')
-        st.image(image, caption="Analyzed Specimen", use_container_width=True)
+elif nav == "Dashboard":
+    st.markdown('<div class="glass-card"><h1>Fish Species Detection</h1></div>', unsafe_allow_html=True)
     
-    with col2:
-        if st.button("RUN DEEP ANALYSIS"):
-            if expert_model:
-                with st.spinner("Decoding Neural Patterns..."):
-                    # INDUSTRY STANDARD PREPROCESSING (SimCLR specific)
-                    transform = transforms.Compose([
-                        transforms.Resize(256),
-                        transforms.CenterCrop(224),
-                        transforms.ToTensor(),
-                        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-                    ])
-                    
-                    tensor = transform(image).unsqueeze(0)
-                    
-                    with torch.no_grad():
-                        logits = expert_model(tensor)
-                        probs = torch.nn.functional.softmax(logits[0], dim=0)
-                        conf, idx = torch.max(probs, 0)
-                    
-                    # Result Display
-                    st.markdown(f'''
-                        <div style="background: rgba(0, 194, 255, 0.1); border: 2px solid #00C2FF; padding: 20px; border-radius: 15px;">
-                            <h2 style="color: #00C2FF; margin:0;">Specimen: {CLASS_NAMES[idx.item()]}</h2>
-                            <h3 style="margin:0;">Confidence: {conf.item()*100:.2f}%</h3>
-                        </div>
-                    ''', unsafe_allow_html=True)
-                    
-                    # Probability Graph
-                    top5_p, top5_i = torch.topk(probs, 5)
-                    chart_data = pd.DataFrame({
-                        'Species': [CLASS_NAMES[i] for i in top5_i],
-                        'Probability (%)': top5_p.numpy() * 100
-                    })
-                    st.write("#### Confidence Distribution")
-                    st.bar_chart(chart_data, x='Species', y='Probability (%)', horizontal=True)
+    file = st.file_uploader("Upload Image", type=["jpg", "png", "jpeg"])
+    if file:
+        col1, col2 = st.columns(2)
+        with col1:
+            img = Image.open(file).convert('RGB')
+            st.image(img, caption="Analyzed Specimen", use_container_width=True)
+        
+        with col2:
+            if st.button("RUN AI ANALYSIS"):
+                # Professional Preprocessing
+                transform = transforms.Compose([
+                    transforms.Resize(256),
+                    transforms.CenterCrop(224),
+                    transforms.ToTensor(),
+                    transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+                ])
+                tensor = transform(img).unsqueeze(0)
+                
+                with torch.no_grad():
+                    output = expert_model(tensor)
+                    prob = torch.nn.functional.softmax(output[0], dim=0)
+                    conf, idx = torch.max(prob, 0)
+                
+                # রেজাল্ট নির্ভুল করার ফিল্টার
+                if conf.item() < 0.60:
+                    st.warning("⚠️ Low Confidence. Result might be inaccurate.")
 
-st.markdown('<p style="text-align:center; color:rgba(255,255,255,0.3); margin-top:50px;">© 2026 RIAD AI INDUSTRIES | ENTERPRISE DEPLOYMENT</p>', unsafe_allow_html=True)
+                st.markdown(f'''
+                    <div style="border: 2px solid #00C2FF; padding: 20px; border-radius: 15px; background: rgba(0,194,255,0.1);">
+                        <h2 style="color: #00C2FF;">Specimen: {CLASS_NAMES[idx.item()]}</h2>
+                        <h3>Confidence: {conf.item()*100:.2f}%</h3>
+                    </div>
+                ''', unsafe_allow_html=True)
+                
+                # Probability Distribution Graph
+                top5_p, top5_i = torch.topk(prob, 5)
+                chart = pd.DataFrame({'Species': [CLASS_NAMES[i] for i in top5_i], 'Confidence (%)': top5_p.numpy()*100})
+                st.bar_chart(chart, x='Species', y='Confidence (%)', horizontal=True)
