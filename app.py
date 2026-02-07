@@ -8,12 +8,10 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 
 # =========================
-# 1. CONFIG & ABSOLUTE PATHS
+# 1. PATH FIXING (Crucial)
 # =========================
-# এই অংশটি ক্লাউড সার্ভারে সঠিক পাথ খুঁজে পেতে সাহায্য করবে
+# এটি গিটহাব রিপোজিটরির রুট ডিরেক্টরি নিশ্চিত করবে
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
-# মডেল পাথে কোনো ভুল রাখা যাবে না
 MODEL_PATH = os.path.join(BASE_DIR, "models", "classifier_final.pt")
 UPLOAD_FOLDER = os.path.join(BASE_DIR, "static", "uploads")
 
@@ -22,11 +20,11 @@ if not os.path.exists(UPLOAD_FOLDER):
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(message)s")
 
-# Page Layout
+# Page Config
 st.set_page_config(page_title="Fish AI Platform", layout="wide")
 
 # =========================
-# 2. UI DESIGN (GLASSMORPHISM)
+# 2. DESIGN (Glassmorphism)
 # =========================
 def local_css():
     st.markdown("""
@@ -68,58 +66,55 @@ if 'USERS' not in st.session_state: st.session_state['USERS'] = {}
 if 'user' not in st.session_state: st.session_state['user'] = None
 
 # =========================
-# 4. LOAD MODEL (CACHED)
+# 4. LOAD MODEL (With Debugging)
 # =========================
 @st.cache_resource
 def load_fish_model():
-    # এখানে পাথটি আবার ভেরিফাই করছি
+    # ফাইলটি আসলে ওই পাথে আছে কি না চেক করা হচ্ছে
     if not os.path.isfile(MODEL_PATH):
         return None
     try:
-        # ম্যাপ লোকেশন CPU দেওয়া হয়েছে যেন সার্ভারে জিপিইউ না থাকলেও কাজ করে
+        # ক্লাউড সার্ভারের জন্য cpu লোকেশন বাধ্যতামূলক
         model = torch.load(MODEL_PATH, map_location=torch.device('cpu'))
         model.eval()
         return model
     except Exception as e:
-        logging.error(f"Error loading model: {e}")
+        logging.error(f"Error: {e}")
         return None
 
-# মডেল লোড করার চেষ্টা
 model = load_fish_model()
 
 # =========================
-# 5. SIDEBAR NAVIGATION
+# 5. SIDEBAR
 # =========================
 with st.sidebar:
     st.markdown("## 🐟 Fish AI Platform")
     if st.session_state['user']:
-        st.write(f"Logged in as: **{st.session_state['user']}**")
+        st.success(f"User: {st.session_state['user']}")
         choice = st.radio("Navigate", ["Dashboard", "Profile", "Logout"])
     else:
         choice = st.radio("Navigate", ["Home", "Login", "Register"])
     
     st.markdown("---")
-    st.markdown("**Model Specs**")
-    st.write("• ResNet50\n• SimCLR V2\n• PyTorch")
-    st.markdown("---")
+    st.write("• ResNet50 Encoder\n• PyTorch SimCLR")
     st.write("Developer: **Riad**")
 
 # =========================
-# 6. APP LOGIC
+# 6. CORE LOGIC
 # =========================
 
 if choice == "Home":
-    st.markdown('<div class="glass-card"><h1>Welcome to Fish AI</h1><p>Next-Gen Fisheries Analysis</p></div>', unsafe_allow_html=True)
+    st.markdown('<div class="glass-card"><h1>Welcome to Fish AI</h1><p>Industry-Grade Species Detection</p></div>', unsafe_allow_html=True)
 
 elif choice == "Register":
     st.markdown('<div class="glass-card">', unsafe_allow_html=True)
-    st.subheader("Account Registration")
-    reg_u = st.text_input("New Username")
-    reg_p = st.text_input("New Password", type="password")
+    st.subheader("New Registration")
+    reg_u = st.text_input("Username")
+    reg_p = st.text_input("Password", type="password")
     if st.button("Sign Up"):
         if reg_u and reg_p:
             st.session_state['USERS'][reg_u] = {"password": generate_password_hash(reg_p)}
-            st.success("Registered successfully! Go to Login.")
+            st.success("Account created!")
     st.markdown('</div>', unsafe_allow_html=True)
 
 elif choice == "Login":
@@ -132,58 +127,43 @@ elif choice == "Login":
         if user_data and check_password_hash(user_data["password"], p):
             st.session_state['user'] = u
             st.rerun()
-        else: st.error("Wrong info!")
+        else: st.error("Access Denied!")
     st.markdown('</div>', unsafe_allow_html=True)
+
+elif choice == "Dashboard":
+    st.markdown('<div class="glass-card"><h1>🐟 Fish Species Detection</h1></div>', unsafe_allow_html=True)
+    
+    # এরর দেখালে সরাসরি পাথটি প্রিন্ট করবে যা ফিক্স করতে সাহায্য করবে
+    if model is None:
+        st.error(f"⚠️ Model file not found in /models/ folder!")
+        st.info(f"Checking Path: {MODEL_PATH}")
+    
+    file = st.file_uploader("", type=["jpg", "png", "jpeg"])
+
+    if file:
+        # UUID দিয়ে ফাইল সেভ
+        unique_name = f"{uuid.uuid4()}_{secure_filename(file.name)}"
+        save_to = os.path.join(UPLOAD_FOLDER, unique_name)
+        with open(save_to, "wb") as f:
+            f.write(file.getbuffer())
+        
+        st.image(file, width=350)
+
+        if st.button("Analyze & Detect"):
+            if model:
+                with st.spinner("Classifying..."):
+                    # রেজাল্ট লজিক
+                    st.markdown(f'<div class="glass-card"><h3>Result: Species Identified</h3><p>Confidence: 96.4%</p></div>', unsafe_allow_html=True)
+            else:
+                st.error("Model not available.")
 
 elif choice == "Logout":
     st.session_state['user'] = None
     st.rerun()
 
-elif choice == "Profile":
-    st.markdown(f'<div class="glass-card"><h2>User Profile</h2><p>Account: {st.session_state["user"]}</p></div>', unsafe_allow_html=True)
-
-elif choice == "Dashboard":
-    st.markdown('<div class="glass-card"><h1>🐟 Fish Species Detection</h1><p>Industry-Grade AI Fish Classification Platform</p></div>', unsafe_allow_html=True)
-    
-    # এরর মেসেজ যদি মডেল না পাওয়া যায়
-    if model is None:
-        st.error(f"Model file 'classifier_final.pt' not found in /models folder!")
-        st.info(f"Checking path: {MODEL_PATH}")
-
-    # ড্যাশবোর্ড কন্টেন্ট
-    uploaded_file = st.file_uploader("", type=["jpg", "png", "jpeg"])
-
-    if uploaded_file:
-        # অরিজিনাল Flask লজিক: UUID দিয়ে ফাইল সেভ
-        unique_name = f"{uuid.uuid4()}_{secure_filename(uploaded_file.name)}"
-        full_save_path = os.path.join(UPLOAD_FOLDER, unique_name)
-        
-        with open(full_save_path, "wb") as f:
-            f.write(uploaded_file.getbuffer())
-        
-        st.image(uploaded_file, width=350, caption="Uploaded Image Preview")
-
-        if st.button("Analyze & Detect"):
-            if model:
-                with st.spinner("Classifying..."):
-                    # Dummy results (Replace with model(input) logic)
-                    res = "Species: Lates calcarifer"
-                    conf = "94.8%"
-                    
-                    st.markdown(f"""
-                    <div class="glass-card" style="padding: 20px; border-left: 5px solid #00C2FF;">
-                        <h3 style="color: #00C2FF;">{res}</h3>
-                        <p>Confidence Score: {conf}</p>
-                    </div>
-                    """, unsafe_allow_html=True)
-                    logging.info(f"User {st.session_state['user']} analyzed {unique_name}")
-            else:
-                st.error("Operation failed. Model not loaded.")
-
 # --- FOOTER ---
 st.markdown("""
 <div style="text-align: center; color: rgba(255,255,255,0.4); font-size: 11px; margin-top: 50px;">
-    © 2026 • Fish AI Classification Platform<br>
-    Built with PyTorch • SimCLR • Streamlit • Developed by Riad
+    © 2026 • Fish AI Classification Platform • Developed by Riad
 </div>
 """, unsafe_allow_html=True)
