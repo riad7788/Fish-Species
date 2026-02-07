@@ -5,6 +5,7 @@ from torchvision import transforms, models
 from PIL import Image
 from huggingface_hub import hf_hub_download
 import base64
+import numpy as np
 
 # ==================================================
 # PAGE CONFIG
@@ -12,11 +13,12 @@ import base64
 st.set_page_config(
     page_title="Fish Species Detection",
     page_icon="🐟",
-    layout="centered"
+    layout="centered",
+    initial_sidebar_state="collapsed"
 )
 
 # ==================================================
-# BACKGROUND + GLASS UI
+# BACKGROUND + GLASSMORPHISM UI
 # ==================================================
 def add_bg(image_path):
     with open(image_path, "rb") as f:
@@ -25,9 +27,13 @@ def add_bg(image_path):
     st.markdown(
         f"""
         <style>
+        html, body {{
+            font-family: 'Inter', sans-serif;
+        }}
+
         .stApp {{
             background:
-              linear-gradient(rgba(0,0,0,0.55), rgba(0,0,0,0.55)),
+              linear-gradient(rgba(0,0,0,0.65), rgba(0,0,0,0.65)),
               url("data:image/png;base64,{encoded}");
             background-size: cover;
             background-position: center;
@@ -35,21 +41,21 @@ def add_bg(image_path):
         }}
 
         .block-container {{
-            max-width: 720px;
-            background: rgba(255, 255, 255, 0.15);
-            backdrop-filter: blur(18px);
-            -webkit-backdrop-filter: blur(18px);
-            padding: 3rem;
-            border-radius: 22px;
+            max-width: 760px;
+            background: rgba(255,255,255,0.14);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            padding: 3.2rem;
+            border-radius: 24px;
             border: 1px solid rgba(255,255,255,0.25);
-            box-shadow: 0 20px 60px rgba(0,0,0,0.45);
+            box-shadow: 0 25px 70px rgba(0,0,0,0.55);
         }}
 
         /* Buttons */
         button {{
             width: 100%;
-            height: 3.2em;
-            border-radius: 14px !important;
+            height: 3.3em;
+            border-radius: 16px !important;
             font-size: 18px !important;
             font-weight: 600;
             background: linear-gradient(135deg,#00c6ff,#0072ff);
@@ -58,16 +64,21 @@ def add_bg(image_path):
         }}
 
         button:hover {{
-            transform: scale(1.02);
-            transition: 0.2s ease;
+            transform: scale(1.03);
+            transition: 0.25s ease;
         }}
 
         /* File uploader */
         section[data-testid="stFileUploader"] {{
-            background: rgba(0,0,0,0.35);
-            border-radius: 14px;
-            padding: 18px;
-            border: 1px dashed rgba(255,255,255,0.4);
+            background: rgba(0,0,0,0.40);
+            border-radius: 16px;
+            padding: 20px;
+            border: 1px dashed rgba(255,255,255,0.45);
+        }}
+
+        /* Progress bar */
+        .stProgress > div > div {{
+            background-image: linear-gradient(90deg,#00c6ff,#0072ff);
         }}
         </style>
         """,
@@ -75,6 +86,29 @@ def add_bg(image_path):
     )
 
 add_bg("assets/watermark.png")
+
+# ==================================================
+# SIDEBAR (ENTERPRISE TOUCH)
+# ==================================================
+with st.sidebar:
+    st.markdown("## 🐟 Fish AI System")
+    st.markdown("""
+    **Model**  
+    • SimCLR (Self-Supervised)  
+    • ResNet50 Encoder  
+
+    **Training**  
+    • Contrastive Learning  
+    • Linear Classifier  
+
+    **Use Case**  
+    • Fish species identification  
+    • Research & education  
+
+    ---
+    **Developer**  
+    **Riad**
+    """)
 
 # ==================================================
 # CONFIG
@@ -94,10 +128,9 @@ FEATURE_DIM = 2048
 # ==================================================
 # LOAD MODELS
 # ==================================================
-@st.cache_resource
+@st.cache_resource(show_spinner=False)
 def load_models():
 
-    # -------- Encoder (SimCLR ResNet50) --------
     encoder_path = hf_hub_download(
         repo_id="riad300/fish-simclr-encoder",
         filename="encoder_simclr.pt"
@@ -106,8 +139,7 @@ def load_models():
     encoder_state = torch.load(encoder_path, map_location=DEVICE)
 
     base = models.resnet50(weights=None)
-    encoder = nn.Sequential(*list(base.children())[:-1])
-    encoder.to(DEVICE)
+    encoder = nn.Sequential(*list(base.children())[:-1]).to(DEVICE)
 
     clean_state = {}
     for k, v in encoder_state.items():
@@ -117,7 +149,6 @@ def load_models():
     encoder.load_state_dict(clean_state, strict=False)
     encoder.eval()
 
-    # -------- Classifier --------
     classifier = nn.Linear(FEATURE_DIM, NUM_CLASSES)
     classifier.load_state_dict(
         torch.load("models/classifier_final.pt", map_location=DEVICE)
@@ -125,96 +156,89 @@ def load_models():
     classifier.to(DEVICE)
     classifier.eval()
 
+    # warm-up (first click lag remove)
+    dummy = torch.randn(1,3,224,224).to(DEVICE)
+    with torch.no_grad():
+        _ = classifier(encoder(dummy).view(1,-1))
+
     return encoder, classifier
 
 encoder, classifier = load_models()
 
 # ==================================================
-# IMAGE TRANSFORM
+# TRANSFORM
 # ==================================================
 transform = transforms.Compose([
-    transforms.Resize((224, 224)),
+    transforms.Resize((224,224)),
     transforms.ToTensor(),
     transforms.Normalize(
-        [0.485, 0.456, 0.406],
-        [0.229, 0.224, 0.225]
+        [0.485,0.456,0.406],
+        [0.229,0.224,0.225]
     )
 ])
 
 # ==================================================
 # PREDICTION
 # ==================================================
-def predict(img):
+def predict_topk(img, k=3):
     img = transform(img).unsqueeze(0).to(DEVICE)
 
     with torch.no_grad():
-        feat = encoder(img)
-        feat = feat.view(feat.size(0), -1)
-        out = classifier(feat)
-        prob = torch.softmax(out, dim=1)
+        feat = encoder(img).view(1,-1)
+        prob = torch.softmax(classifier(feat), dim=1)[0]
 
-    idx = prob.argmax(1).item()
-    return CLASS_NAMES[idx], prob[0][idx].item() * 100
+    topk = torch.topk(prob, k)
+    results = [
+        (CLASS_NAMES[i], float(topk.values[idx]*100))
+        for idx, i in enumerate(topk.indices)
+    ]
+    return results
 
 # ==================================================
-# UI
+# UI HEADER
 # ==================================================
 st.markdown("""
 <div style="text-align:center;">
-    <h1 style="font-size:42px; margin-bottom:5px;">🐟 Fish Species Detection</h1>
+    <h1 style="font-size:44px; margin-bottom:6px;">🐟 Fish Species Detection</h1>
     <p style="font-size:18px; color:#e0e0e0;">
-        AI-powered Fish Classification using SimCLR & ResNet50
+        High-Accuracy AI Fish Classification System
     </p>
 </div>
-<hr style="margin-top:25px; margin-bottom:30px;">
+<hr style="margin:30px 0;">
 """, unsafe_allow_html=True)
 
-file = st.file_uploader(
-    "📤 Upload a fish image",
-    type=["jpg", "jpeg", "png"]
-)
+# ==================================================
+# MAIN UI
+# ==================================================
+file = st.file_uploader("📤 Upload a fish image", type=["jpg","jpeg","png"])
 
 if file:
-    image = Image.open(file).convert("RGB")
-    st.image(image, caption="Uploaded Fish Image", use_column_width=True)
+    try:
+        image = Image.open(file).convert("RGB")
+        st.image(image, caption="Uploaded Image", use_column_width=True)
 
-    st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("🔍 Analyze Image"):
+            with st.spinner("Running deep feature analysis..."):
+                results = predict_topk(image)
 
-    if st.button("🔍 Predict Species"):
-        with st.spinner("Analyzing image..."):
-            label, conf = predict(image)
+            st.markdown("### 🧠 Prediction Results")
 
-        st.markdown(
-            f"""
-            <div style="
-                margin-top:30px;
-                padding:25px;
-                border-radius:18px;
-                background: linear-gradient(
-                    135deg,
-                    rgba(0,114,255,0.25),
-                    rgba(0,198,255,0.25)
-                );
-                text-align:center;
-                box-shadow: inset 0 0 25px rgba(255,255,255,0.15);
-            ">
-                <p style="font-size:14px; letter-spacing:1px;">PREDICTED SPECIES</p>
-                <h2 style="font-size:34px;">{label}</h2>
-                <p style="font-size:18px;">
-                    Confidence: <b>{conf:.2f}%</b>
-                </p>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
+            for name, conf in results:
+                st.markdown(f"**{name}**")
+                st.progress(int(conf))
+                st.caption(f"Confidence: {conf:.2f}%")
+
+    except Exception as e:
+        st.error("❌ Unable to process this image. Please try another one.")
 
 # ==================================================
 # FOOTER
 # ==================================================
 st.markdown("""
-<hr style="margin-top:40px;">
-<p style="text-align:center; color:#ccc; font-size:14px;">
+<hr style="margin-top:45px;">
+<p style="text-align:center; color:#cfcfcf; font-size:14px;">
 © 2026 · Fish AI Classification System<br>
+Built with PyTorch · Streamlit · SimCLR<br>
 Developed by <b>Riad</b>
 </p>
 """, unsafe_allow_html=True)
