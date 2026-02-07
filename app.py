@@ -8,33 +8,16 @@ from PIL import Image
 import pandas as pd
 
 # ==========================================
-# ১. নোটবুক অনুযায়ী মডেল আর্কিটেকচার (Cell-4 & 7)
-# ==========================================
-class SimCLR(nn.Module):
-    def __init__(self, proj_dim=128):
-        super().__init__()
-        self.encoder = models.resnet50(weights=None)
-        self.encoder.fc = nn.Identity() 
-        self.projector = nn.Sequential(
-            nn.Linear(2048, 256),
-            nn.ReLU(inplace=True),
-            nn.Linear(256, proj_dim)
-        )
-    def forward(self, x):
-        h = self.encoder(x)
-        return self.projector(h)
-
-# ==========================================
-# ২. রিসোর্স কনফিগ
+# ১. রিসোর্স ও মডেল পাথ কনফিগ
 # ==========================================
 HF_EXPERT_URL = "https://huggingface.co/riad300/fish-simclr-encoder/resolve/main/fish_expert_weights.pt"
 MODEL_PATH = "models/fish_expert_weights.pt"
 os.makedirs("models", exist_ok=True)
 
-st.set_page_config(page_title="Fish AI Pro", page_icon="🐟", layout="wide")
+st.set_page_config(page_title="Fish AI - Expert Build", page_icon="🐟", layout="wide")
 
 # ==========================================
-# ৩. সঠিক ক্লাস লিস্ট (নোটবুক অনুযায়ী)
+# ২. সঠিক ক্লাস লিস্ট (নোটবুকের ট্রেনিং সিকোয়েন্স অনুযায়ী)
 # ==========================================
 CLASS_NAMES = [
     "Baim", "Bata", "Batasio(tenra)", "Chitul", "Croaker(Poya)", 
@@ -44,7 +27,7 @@ CLASS_NAMES = [
 ]
 
 # ==========================================
-# ৪. ডার্ক প্রিমিয়াম ইউআই (ব্যাকগ্রাউন্ড ফিক্স)
+# ৩. ইউআই ডিজাইন ও ব্যাকগ্রাউন্ড
 # ==========================================
 def apply_ui():
     st.markdown("""
@@ -55,11 +38,11 @@ def apply_ui():
         background-size: cover !important;
         background-attachment: fixed !important;
     }
-    .main-card {
+    .glass-card {
         background: rgba(255, 255, 255, 0.05);
         backdrop-filter: blur(15px);
         border-radius: 20px; border: 1px solid rgba(0, 194, 255, 0.2);
-        padding: 30px; color: white;
+        padding: 30px; margin-bottom: 20px; color: white;
     }
     div.stButton > button {
         background: linear-gradient(90deg, #00C2FF, #0072FF);
@@ -71,66 +54,86 @@ def apply_ui():
 apply_ui()
 
 # ==========================================
-# ৫. হাই-প্রিসিশন ইঞ্জিন লোডার
+# ৪. নোটবুক সিঙ্কড মডেল লোডার (FIXED)
 # ==========================================
 @st.cache_resource
 def load_expert_engine():
+    # মডেল ডাউনলোড
     if not os.path.exists(MODEL_PATH):
-        r = requests.get(HF_EXPERT_URL, stream=True)
-        with open(MODEL_PATH, "wb") as f:
-            for chunk in r.iter_content(chunk_size=8192): f.write(chunk)
-    
+        try:
+            r = requests.get(HF_EXPERT_URL, stream=True)
+            with open(MODEL_PATH, "wb") as f:
+                for chunk in r.iter_content(chunk_size=8192): f.write(chunk)
+        except Exception as e: return None
+
     try:
-        # নোটবুকের সিমলার মডেল থেকে ক্লাসিফায়ার তৈরি (Cell-7)
-        base = SimCLR()
-        classifier = nn.Sequential(base.encoder, nn.Linear(2048, 21))
+        # নোটবুকের Cell-7 অনুযায়ী আর্কিটেকচার তৈরি
+        base_resnet = models.resnet50(weights=None)
+        base_resnet.fc = nn.Identity() # নোটবুকের প্রোজেকশন হেডের আগের অবস্থা
         
-        # সরাসরি ওয়েটস লোড
-        sd = torch.load(MODEL_PATH, map_location=torch.device('cpu'))
-        classifier.load_state_dict(sd)
-        classifier.eval()
-        return classifier
+        # আপনার ট্রেনিং করা ২১টি ক্লাসের ক্লাসিফায়ার
+        model = nn.Sequential(
+            base_resnet,
+            nn.Linear(2048, 21)
+        )
+        
+        # স্টেট ডিকশনারি লোড করা (Prefix cleaning সহ)
+        checkpoint = torch.load(MODEL_PATH, map_location=torch.device('cpu'))
+        
+        # যদি ডিকশনারির কী-গুলোতে 'encoder.' বা অন্য কিছু থাকে তা রিমুভ করা
+        new_sd = {}
+        for k, v in checkpoint.items():
+            name = k.replace("encoder.", "0.").replace("model.", "0.") # Sequential এর ১ম অংশ ০
+            if not k.startswith("projector"): # শুধু ক্লাসিফায়ার ওয়েটস নিচ্ছি
+                new_sd[name] = v
+        
+        model.load_state_dict(new_sd, strict=False)
+        model.eval()
+        return model
     except Exception as e:
         return None
 
 expert_model = load_expert_engine()
 
 # ==========================================
-# ৬. লগইন এবং ড্যাশবোর্ড লজিক
+# ৫. ড্যাশবোর্ড লজিক ও লগইন
 # ==========================================
 if 'user' not in st.session_state: st.session_state['user'] = None
 
 with st.sidebar:
     st.title("🛡️ Secure Access")
     if st.session_state['user']:
-        st.success(f"Verified: {st.session_state['user']}")
-        if st.button("Logout"): 
+        st.success(f"User: {st.session_state['user']}")
+        if st.button("Logout"):
             st.session_state['user'] = None
             st.rerun()
-    else:
-        st.info("Authentication Required")
+    st.write("---")
+    st.caption("Build v12.5 - SimCLR Optimized")
 
 if not st.session_state['user']:
-    st.markdown('<div class="main-card"><h2>Expert Portal Login</h2></div>', unsafe_allow_html=True)
-    u = st.text_input("Username")
+    st.markdown('<div class="glass-card"><h2>Expert Portal Login</h2></div>', unsafe_allow_html=True)
+    user_input = st.text_input("Username")
     if st.button("Unlock Dashboard"):
-        st.session_state['user'] = u
-        st.rerun()
+        if user_input:
+            st.session_state['user'] = user_input
+            st.rerun()
 else:
-    st.markdown('<div class="main-card"><h1>Expert Fish Analyzer</h1><p>Synced with SimCLR Notebook Build</p></div>', unsafe_allow_html=True)
+    st.markdown('<div class="glass-card"><h1>Expert Fish Analyzer</h1><p>High-Precision Neural Mapping Active</p></div>', unsafe_allow_html=True)
     
     file = st.file_uploader("Upload Fish Specimen", type=["jpg", "png", "jpeg"])
+    
     if file:
         col1, col2 = st.columns([1, 1.2])
+        img = Image.open(file).convert('RGB')
+        
         with col1:
-            img = Image.open(file).convert('RGB')
-            st.image(img, caption="Analyzed Specimen", use_container_width=True)
+            st.image(img, caption="Target Specimen", use_container_width=True)
         
         with col2:
             if st.button("🚀 EXECUTE NEURAL ANALYSIS"):
                 if expert_model:
                     with st.spinner("Decoding Neural Patterns..."):
-                        # আপনার নোটবুক অনুযায়ী ১৬০x১৬০ সাইজ (Cell-2)
+                        # আপনার নোটবুকের Cell-2 অনুযায়ী ১৬০x১৬০ সাইজ
                         transform = transforms.Compose([
                             transforms.Resize((160, 160)),
                             transforms.ToTensor(),
@@ -139,21 +142,22 @@ else:
                         
                         tensor = transform(img).unsqueeze(0)
                         
-                        with torch.no_grad():
-                            out = expert_model(tensor)
-                            prob = torch.nn.functional.softmax(out[0], dim=0)
-                            conf, idx = torch.max(prob, 0)
-                        
-                        st.markdown(f'''
-                            <div style="border: 2px solid #00C2FF; border-radius: 15px; padding: 25px; background: rgba(0,194,255,0.1);">
-                                <h2 style="color: #00C2FF; margin:0;">Identified: {CLASS_NAMES[idx.item()]}</h2>
-                                <h3 style="margin:0;">Precision: {conf.item()*100:.2f}%</h3>
-                            </div>
-                        ''', unsafe_allow_html=True)
-                        
-                        # গ্রাফ ডিস্ট্রিবিউশন
-                        top5_p, top5_i = torch.topk(prob, 5)
-                        df = pd.DataFrame({'Fish': [CLASS_NAMES[i] for i in top5_i], 'Match (%)': top5_p.numpy()*100})
-                        st.bar_chart(df, x='Fish', y='Match (%)')
-
-st.markdown('<p style="text-align:center; color:gray; margin-top:80px;">© 2026 RIAD AI INDUSTRIES • ENTERPRISE SYNC BUILD</p>', unsafe_allow_html=True)
+                        try:
+                            with torch.no_grad():
+                                output = expert_model(tensor)
+                                prob = torch.nn.functional.softmax(output[0], dim=0)
+                                conf, idx = torch.max(prob, 0)
+                            
+                            st.markdown(f'''
+                                <div style="border: 2px solid #00C2FF; border-radius: 15px; padding: 25px; background: rgba(0,194,255,0.1);">
+                                    <h2 style="color: #00C2FF; margin:0;">Identified: {CLASS_NAMES[idx.item()]}</h2>
+                                    <h3 style="margin:0;">Precision: {conf.item()*100:.2f}%</h3>
+                                </div>
+                            ''', unsafe_allow_html=True)
+                            
+                            # টপ ৫ রেজাল্ট চার্ট
+                            top5_p, top5_i = torch.topk(prob, 5)
+                            df = pd.DataFrame({'Fish': [CLASS_NAMES[i] for i in top5_i], 'Match (%)': top5_p.numpy()*100})
+                            st.bar_chart(df, x='Fish', y='Match (%)')
+                        except Exception as e:
+                            st.error("Analysis Failed. Model sync error.")
