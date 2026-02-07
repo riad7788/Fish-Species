@@ -8,19 +8,18 @@ from PIL import Image
 import pandas as pd
 
 # ==========================================
-# 1. RESOURCE SYNC (Cloud Model)
+# 1. CLOUD MODEL CONFIG
 # ==========================================
 HF_EXPERT_URL = "https://huggingface.co/riad300/fish-simclr-encoder/resolve/main/fish_expert_weights.pt"
 MODEL_PATH = "models/fish_expert_weights.pt"
 os.makedirs("models", exist_ok=True)
 
-st.set_page_config(page_title="Fish AI - Final Build", page_icon="🐟", layout="wide")
+st.set_page_config(page_title="Fish AI - Expert Suite", page_icon="🐟", layout="wide")
 
 # ==========================================
-# 2. UI & BACKGROUND FIX (100% RECOVERY)
+# 2. UI & BACKGROUND RESTORATION
 # ==========================================
-def apply_ui_theme():
-    # সরাসরি স্ট্রিং ব্যবহার করে ব্যাকগ্রাউন্ড ফিক্স করা হয়েছে
+def apply_pro_styling():
     st.markdown("""
     <style>
     .stApp {
@@ -32,7 +31,7 @@ def apply_ui_theme():
     .main-card {
         background: rgba(255, 255, 255, 0.05);
         backdrop-filter: blur(20px);
-        border-radius: 20px; border: 1px solid rgba(0, 194, 255, 0.3);
+        border-radius: 25px; border: 1px solid rgba(0, 194, 255, 0.2);
         padding: 40px; color: white;
     }
     div.stButton > button {
@@ -42,12 +41,13 @@ def apply_ui_theme():
     </style>
     """, unsafe_allow_html=True)
 
-apply_ui_theme()
+apply_pro_styling()
 
 # ==========================================
-# 3. ABSOLUTE CORRECT CLASS MAPPING
+# 3. VERIFIED ALPHABETICAL CLASS MAPPING
 # ==========================================
-# পাইথনের ImageFolder সর্টিং (Capital first, then Small letters)
+# আপনার ফোল্ডার লিস্ট (image_4507ca.png) অনুযায়ী পাইথন যেভাবে ইন্ডেক্স করে:
+# বড় হাতের (A-Z) ফোল্ডারগুলো আগে, তারপর ছোট হাতের (a-z) গুলো।
 CLASS_NAMES = [
     "Baim", "Bata", "Batasio(tenra)", "Chitul", "Croaker(Poya)", 
     "Hilsha", "Kajoli", "Meni", "Pabda", "Poli", "Puti", 
@@ -56,7 +56,7 @@ CLASS_NAMES = [
 ]
 
 # ==========================================
-# 4. ENGINE LOADER (SimCLR Expert)
+# 4. HIGH-PRECISION ENGINE LOADER
 # ==========================================
 @st.cache_resource
 def load_expert_engine():
@@ -68,8 +68,8 @@ def load_expert_engine():
     try:
         model = models.resnet50(weights=None)
         model.fc = nn.Linear(model.fc.in_features, 21)
+        # Key cleaning logic for SimCLR
         sd = torch.load(MODEL_PATH, map_location=torch.device('cpu'))
-        # Key cleaning logic
         clean_sd = {k.replace("encoder.", "").replace("model.", ""): v for k, v in sd.items()}
         model.load_state_dict(clean_sd, strict=False)
         model.eval()
@@ -80,7 +80,7 @@ def load_expert_engine():
 expert_model = load_expert_engine()
 
 # ==========================================
-# 5. DASHBOARD & ANALYSIS (Indentation Fixed)
+# 5. ANALYSIS DASHBOARD (Indentation Fixed)
 # ==========================================
 if 'user' not in st.session_state: st.session_state['user'] = "Riad"
 
@@ -88,9 +88,9 @@ with st.sidebar:
     st.title("🛡️ Access Control")
     st.success(f"Verified: {st.session_state['user']}")
     st.write("---")
-    st.info("System Build: v8.0 Enterprise")
+    st.info("System Build: v9.0 Final")
 
-st.markdown('<div class="main-card"><h1>Expert Fish Analytics</h1><p>Neural Pattern Mapping Active</p></div>', unsafe_allow_html=True)
+st.markdown('<div class="main-card"><h1>Expert Fish Analyzer</h1><p>Precision Neural Mapping Active</p></div>', unsafe_allow_html=True)
 
 file = st.file_uploader("Upload Specimen", type=["jpg", "png", "jpeg"])
 
@@ -104,14 +104,14 @@ if file:
         if st.button("🚀 EXECUTE NEURAL DIAGNOSTICS"):
             if expert_model:
                 with st.spinner("Decoding Morphology..."):
-                    # Standard Transformation logic
+                    # ইন্ডাস্ট্রি স্ট্যান্ডার্ড ছবির সাইজ এবং নরমালাইজেশন
                     transform = transforms.Compose([
                         transforms.Resize(256),
                         transforms.CenterCrop(224),
                         transforms.ToTensor(),
                         transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
                     ])
-                    # এই লাইনটির স্পেস (Indentation) ঠিক করা হয়েছে
+                    # এরর হওয়া লাইনের ইনডেন্টেশন ঠিক করা হয়েছে
                     tensor = transform(img).unsqueeze(0)
                     
                     with torch.no_grad():
@@ -119,15 +119,15 @@ if file:
                         prob = torch.nn.functional.softmax(out[0], dim=0)
                         conf, idx = torch.max(prob, 0)
                     
-                    # ফলাফল প্রদর্শন
+                    # ফলাফল আউটপুট
                     st.markdown(f'''
                         <div style="border: 2px solid #00C2FF; border-radius: 15px; padding: 25px; background: rgba(0,194,255,0.1);">
-                            <h2 style="color: #00C2FF; margin:0;">Identified: {CLASS_NAMES[idx.item()]}</h2>
+                            <h2 style="color: #00C2FF; margin:0;">Specimen: {CLASS_NAMES[idx.item()]}</h2>
                             <h3 style="margin:0;">Precision: {conf.item()*100:.2f}%</h3>
                         </div>
                     ''', unsafe_allow_html=True)
                     
-                    # প্রবাবিলিটি গ্রাফ
+                    # প্রবাবিলিটি চার্ট
                     top5_p, top5_i = torch.topk(prob, 5)
                     df = pd.DataFrame({'Species': [CLASS_NAMES[i] for i in top5_i], 'Confidence (%)': top5_p.numpy()*100})
                     st.bar_chart(df, x='Species', y='Confidence (%)', horizontal=True)
