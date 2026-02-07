@@ -1,263 +1,210 @@
-import streamlit as st
-import torch
-import torch.nn as nn
-from torchvision import transforms, models
-from PIL import Image
-from huggingface_hub import hf_hub_download
-import base64
+import os
+import uuid
+import logging
+from functools import wraps
 
-# ==================================================
-# PAGE CONFIG
-# ==================================================
-st.set_page_config(
-    page_title="Fish Species Detection",
-    page_icon="🐟",
-    layout="centered",
-    initial_sidebar_state="collapsed"
+from flask import (
+    Flask, render_template, request,
+    redirect, url_for, session, flash
 )
 
-# ==================================================
-# GLOBAL STYLES (INDUSTRY UI)
-# ==================================================
-def inject_css(image_path):
-    with open(image_path, "rb") as f:
-        encoded = base64.b64encode(f.read()).decode()
+import torch
+from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.utils import secure_filename
 
-    st.markdown(
-        f"""
-        <style>
-        html, body {{
-            font-family: 'Inter', sans-serif;
-        }}
+# =========================
+# BASIC CONFIG
+# =========================
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-        .stApp {{
-            background:
-              linear-gradient(rgba(0,0,0,0.72), rgba(0,0,0,0.72)),
-              url("data:image/png;base64,{encoded}");
-            background-size: cover;
-            background-position: center;
-            background-attachment: fixed;
-        }}
+UPLOAD_FOLDER = os.path.join(BASE_DIR, "static/uploads")
+MODEL_FOLDER = os.path.join(BASE_DIR, "models")
 
-        .block-container {{
-            max-width: 800px;
-            background: rgba(255,255,255,0.12);
-            backdrop-filter: blur(24px);
-            padding: 3.6rem;
-            border-radius: 28px;
-            border: 1px solid rgba(255,255,255,0.25);
-            box-shadow: 0 35px 100px rgba(0,0,0,0.65);
-        }}
+ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg"}
 
-        button {{
-            width: 100%;
-            height: 3.5em;
-            border-radius: 18px !important;
-            font-size: 18px !important;
-            font-weight: 600;
-            background: linear-gradient(135deg,#00c6ff,#0072ff);
-            color: white !important;
-            border: none;
-        }}
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-        button:hover {{
-            transform: scale(1.03);
-            transition: 0.25s ease;
-        }}
+# =========================
+# APP INIT
+# =========================
+app = Flask(__name__)
+app.secret_key = "CHANGE_THIS_TO_A_SECRET_KEY"
+app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
+app.config["MAX_CONTENT_LENGTH"] = 5 * 1024 * 1024  # 5MB
 
-        section[data-testid="stFileUploader"] {{
-            background: rgba(0,0,0,0.45);
-            border-radius: 18px;
-            padding: 22px;
-            border: 1px dashed rgba(255,255,255,0.45);
-        }}
+# =========================
+# LOGGING
+# =========================
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(message)s"
+)
 
-        .stProgress > div > div {{
-            background-image: linear-gradient(90deg,#00c6ff,#0072ff);
-        }}
-        </style>
-        """,
-        unsafe_allow_html=True
+# =========================
+# DUMMY USER DATABASE
+# (Replace with real DB later)
+# =========================
+USERS = {}
+
+# =========================
+# LOAD MODEL
+# =========================
+MODEL_PATH = os.path.join(MODEL_FOLDER, "classifier.pt")
+CLASS_NAMES = ["Class A", "Class B", "Class C"]
+
+device = "cpu"
+
+try:
+    model = torch.load(MODEL_PATH, map_location=device)
+    model.eval()
+    logging.info("Model loaded successfully")
+except Exception as e:
+    logging.error(f"Model loading failed: {e}")
+    model = None
+
+
+# =========================
+# HELPERS
+# =========================
+def allowed_file(filename):
+    return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
+
+
+def login_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if "user" not in session:
+            flash("Please login first", "warning")
+            return redirect(url_for("login"))
+        return f(*args, **kwargs)
+    return decorated_function
+
+
+# =========================
+# ROUTES
+# =========================
+@app.route("/")
+def index():
+    return render_template("index.html")
+
+
+# ---------- AUTH ----------
+@app.route("/register", methods=["GET", "POST"])
+def register():
+    if request.method == "POST":
+        username = request.form["username"]
+        password = request.form["password"]
+
+        if username in USERS:
+            flash("User already exists", "danger")
+            return redirect(url_for("register"))
+
+        USERS[username] = {
+            "password": generate_password_hash(password)
+        }
+
+        flash("Registration successful. Please login.", "success")
+        return redirect(url_for("login"))
+
+    return render_template("register.html")
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if request.method == "POST":
+        username = request.form["username"]
+        password = request.form["password"]
+
+        user = USERS.get(username)
+
+        if not user or not check_password_hash(user["password"], password):
+            flash("Invalid credentials", "danger")
+            return redirect(url_for("login"))
+
+        session["user"] = username
+        flash("Login successful", "success")
+        return redirect(url_for("dashboard"))
+
+    return render_template("login.html")
+
+
+@app.route("/logout")
+@login_required
+def logout():
+    session.pop("user", None)
+    flash("Logged out successfully", "info")
+    return redirect(url_for("login"))
+
+
+# ---------- DASHBOARD ----------
+@app.route("/dashboard")
+@login_required
+def dashboard():
+    return render_template("dashboard.html", user=session["user"])
+
+
+# ---------- PROFILE ----------
+@app.route("/profile")
+@login_required
+def profile():
+    return render_template("profile.html", user=session["user"])
+
+
+# ---------- PREDICTION ----------
+@app.route("/predict", methods=["POST"])
+@login_required
+def predict():
+    if model is None:
+        flash("Model not available", "danger")
+        return redirect(url_for("dashboard"))
+
+    if "file" not in request.files:
+        flash("No file uploaded", "warning")
+        return redirect(url_for("dashboard"))
+
+    file = request.files["file"]
+
+    if file.filename == "":
+        flash("No selected file", "warning")
+        return redirect(url_for("dashboard"))
+
+    if not allowed_file(file.filename):
+        flash("Invalid file type", "danger")
+        return redirect(url_for("dashboard"))
+
+    filename = secure_filename(file.filename)
+    unique_name = f"{uuid.uuid4()}_{filename}"
+    filepath = os.path.join(app.config["UPLOAD_FOLDER"], unique_name)
+    file.save(filepath)
+
+    # -------- MODEL INFERENCE (DUMMY) --------
+    # Replace with real preprocessing
+    predicted_class = CLASS_NAMES[0]
+    confidence = 0.92
+
+    return render_template(
+        "result.html",
+        image_path=f"uploads/{unique_name}",
+        prediction=predicted_class,
+        confidence=confidence
     )
 
-inject_css("assets/watermark.png")
 
-# ==================================================
-# SIDEBAR (ENTERPRISE CONTROL PANEL)
-# ==================================================
-with st.sidebar:
-    st.markdown("## 🐟 Fish AI Platform")
+# =========================
+# ERROR HANDLERS
+# =========================
+@app.errorhandler(404)
+def not_found(e):
+    return render_template("404.html"), 404
 
-    language = st.selectbox("🌐 Language", ["English", "বাংলা"])
-    enable_explain = st.checkbox("🔬 Enable Explainability (Grad-CAM)", False)
-    enable_report = st.checkbox("📄 Enable PDF Report", False)
 
-    st.markdown("""
-    ---
-    **Model**
-    - SimCLR (Self-Supervised)
-    - ResNet50 Encoder
-    - Linear Evaluation
+@app.errorhandler(500)
+def server_error(e):
+    return render_template("500.html"), 500
 
-    **Use Cases**
-    - Fisheries research
-    - Education & labs
-    - AI product demos
 
-    **Developer**
-    **Riad**
-    """)
-
-# ==================================================
-# TEXT (LANGUAGE SUPPORT)
-# ==================================================
-TEXT = {
-    "English": {
-        "title": "Fish Species Detection",
-        "subtitle": "Industry-Grade AI Fish Classification Platform",
-        "upload": "📤 Upload a fish image",
-        "analyze": "🔍 Analyze Image",
-        "results": "Prediction Results"
-    },
-    "বাংলা": {
-        "title": "মাছের প্রজাতি শনাক্তকরণ",
-        "subtitle": "ইন্ডাস্ট্রি-গ্রেড AI ফিশ ক্লাসিফিকেশন সিস্টেম",
-        "upload": "📤 মাছের ছবি আপলোড করুন",
-        "analyze": "🔍 ছবি বিশ্লেষণ করুন",
-        "results": "পূর্বাভাসের ফলাফল"
-    }
-}
-
-T = TEXT[language]
-
-# ==================================================
-# CONFIG
-# ==================================================
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-
-CLASS_NAMES = [
-    "Baim","Bata","Batasio(tenra)","Chitul","Croaker(Poya)",
-    "Hilsha","Kajoli","Meni","Pabda","Poli","Puti",
-    "Rita","Rui","Rupchada","Silver Carp","Telapiya",
-    "carp","k","kaikka","koral","shrimp"
-]
-
-NUM_CLASSES = len(CLASS_NAMES)
-FEATURE_DIM = 2048
-
-# ==================================================
-# LOAD MODELS (WITH WARM-UP)
-# ==================================================
-@st.cache_resource(show_spinner=False)
-def load_models():
-    encoder_path = hf_hub_download(
-        repo_id="riad300/fish-simclr-encoder",
-        filename="encoder_simclr.pt"
-    )
-
-    encoder_state = torch.load(encoder_path, map_location=DEVICE)
-    base = models.resnet50(weights=None)
-    encoder = nn.Sequential(*list(base.children())[:-1]).to(DEVICE)
-
-    clean_state = {}
-    for k, v in encoder_state.items():
-        k = k.replace("encoder.", "").replace("backbone.", "").replace("module.", "")
-        clean_state[k] = v
-    encoder.load_state_dict(clean_state, strict=False)
-    encoder.eval()
-
-    classifier = nn.Linear(FEATURE_DIM, NUM_CLASSES)
-    classifier.load_state_dict(
-        torch.load("models/classifier_final.pt", map_location=DEVICE)
-    )
-    classifier.to(DEVICE)
-    classifier.eval()
-
-    # warm-up
-    dummy = torch.randn(1,3,224,224).to(DEVICE)
-    with torch.no_grad():
-        _ = classifier(encoder(dummy).view(1,-1))
-
-    return encoder, classifier
-
-encoder, classifier = load_models()
-
-# ==================================================
-# TRANSFORM
-# ==================================================
-transform = transforms.Compose([
-    transforms.Resize((224,224)),
-    transforms.ToTensor(),
-    transforms.Normalize(
-        [0.485,0.456,0.406],
-        [0.229,0.224,0.225]
-    )
-])
-
-# ==================================================
-# PREDICTION
-# ==================================================
-def predict_topk(img, k=3):
-    img = transform(img).unsqueeze(0).to(DEVICE)
-    with torch.no_grad():
-        feat = encoder(img).view(1,-1)
-        probs = torch.softmax(classifier(feat), dim=1)[0]
-
-    topk = torch.topk(probs, k)
-    return [(CLASS_NAMES[i], float(topk.values[idx]*100))
-            for idx, i in enumerate(topk.indices)]
-
-# ==================================================
-# HEADER
-# ==================================================
-st.markdown(f"""
-<div style="text-align:center;">
-    <h1 style="font-size:48px;">🐟 {T["title"]}</h1>
-    <p style="font-size:18px; color:#dddddd;">
-        {T["subtitle"]}
-    </p>
-</div>
-<hr style="margin:32px 0;">
-""", unsafe_allow_html=True)
-
-# ==================================================
-# MAIN APP
-# ==================================================
-file = st.file_uploader(T["upload"], type=["jpg","jpeg","png"])
-
-if file:
-    try:
-        image = Image.open(file).convert("RGB")
-        st.image(image, caption="Uploaded Image", use_column_width=True)
-
-        if st.button(T["analyze"]):
-            with st.spinner("Running deep visual analysis..."):
-                results = predict_topk(image)
-
-            st.markdown(f"## 🧠 {T['results']}")
-
-            for label, conf in results:
-                st.markdown(f"**{label}**")
-                st.progress(int(conf))
-                st.caption(f"Confidence: {conf:.2f}%")
-
-            if enable_explain:
-                st.info("🔬 Grad-CAM enabled (hook ready – add visualization module).")
-
-            if enable_report:
-                st.info("📄 PDF report enabled (hook ready – generate inference report).")
-
-    except Exception:
-        st.error("❌ Invalid image. Please upload a valid fish image.")
-
-# ==================================================
-# FOOTER
-# ==================================================
-st.markdown("""
-<hr style="margin-top:50px;">
-<p style="text-align:center; color:#cfcfcf; font-size:14px;">
-© 2026 · Fish AI Classification Platform<br>
-Built with PyTorch · SimCLR · Streamlit<br>
-Developed by <b>Riad</b>
-</p>
-""", unsafe_allow_html=True)
+# =========================
+# MAIN
+# =========================
+if __name__ == "__main__":
+    app.run(debug=True)
