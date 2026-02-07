@@ -203,4 +203,7 @@ def server_error(e):
     return render_template("500.html"), 500
 
 
-
+# =========================
+# MAIN
+# =========================
+if __name__ == "__main__":
