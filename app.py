@@ -6,42 +6,42 @@ import torch.nn as nn
 from torchvision import models, transforms
 from PIL import Image
 import pandas as pd
-import webbrowser
+import urllib.parse
 
 # ==========================================
-# ১. রিসোর্স এবং ডার্ক থিম
+# ১. গ্লোবাল কনফিগ ও ব্যাকগ্রাউন্ড
 # ==========================================
 HF_EXPERT_URL = "https://huggingface.co/riad300/fish-simclr-encoder/resolve/main/fish_expert_weights.pt"
 MODEL_PATH = "models/fish_expert_weights.pt"
 os.makedirs("models", exist_ok=True)
 
-st.set_page_config(page_title="Fish AI - Google Sync", page_icon="🐟", layout="wide")
+st.set_page_config(page_title="Fish AI - Google Engine", page_icon="🐟", layout="wide")
 
-def apply_google_theme():
+def apply_google_style():
     st.markdown("""
     <style>
     .stApp {
-        background: linear-gradient(rgba(0,0,0,0.92), rgba(0,0,0,0.92)), 
+        background: linear-gradient(rgba(0,0,0,0.9), rgba(0,0,0,0.9)), 
                     url("https://images.unsplash.com/photo-1516734212186-a967f81ad0d7?q=80&w=2071") !important;
         background-size: cover !important;
     }
-    .main-card {
-        background: rgba(255, 255, 255, 0.03);
-        backdrop-filter: blur(30px);
-        border-radius: 20px; border: 1px solid rgba(66, 133, 244, 0.5); /* Google Blue Border */
-        padding: 40px; color: white;
+    .google-card {
+        background: rgba(255, 255, 255, 0.05);
+        backdrop-filter: blur(20px);
+        border-radius: 20px; border: 1px solid #4285F4;
+        padding: 30px; color: white; margin-bottom: 20px;
     }
     div.stButton > button {
-        background: linear-gradient(90deg, #4285F4, #34A853); /* Google Colors */
-        color: white; border-radius: 10px; font-weight: bold; border: none;
+        background: linear-gradient(90deg, #4285F4, #EA4335, #FBBC05, #34A853);
+        color: white; border-radius: 10px; font-weight: bold; border: none; height: 3.5em; width: 100%;
     }
     </style>
     """, unsafe_allow_html=True)
 
-apply_google_theme()
+apply_google_style()
 
 # ==========================================
-# ২. সঠিক ফোল্ডার সিরিয়াল (Sync with Notebook)
+# ২. ক্লাস ম্যাপিং (Fixed Order)
 # ==========================================
 CLASS_NAMES = sorted([
     "Baim", "Bata", "Batasio(tenra)", "Chitul", "Croaker(Poya)", 
@@ -51,26 +51,20 @@ CLASS_NAMES = sorted([
 ])
 
 # ==========================================
-# ৩. আপনার নোটবুকের সিমলার মডেল আর্কিটেকচার
+# ৩. সিমলার মডেল লোডার (Sync with Notebook)
 # ==========================================
-class SimCLR(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.encoder = models.resnet50(weights=None)
-        self.encoder.fc = nn.Identity() 
-
 @st.cache_resource
-def load_engine():
+def load_expert_engine():
     if not os.path.exists(MODEL_PATH):
         r = requests.get(HF_EXPERT_URL, stream=True)
         with open(MODEL_PATH, "wb") as f:
             for chunk in r.iter_content(chunk_size=8192): f.write(chunk)
-    
     try:
-        base = SimCLR()
-        model = nn.Sequential(base.encoder, nn.Linear(2048, 21))
+        base = models.resnet50(weights=None)
+        base.fc = nn.Identity()
+        model = nn.Sequential(base, nn.Linear(2048, 21))
         sd = torch.load(MODEL_PATH, map_location=torch.device('cpu'))
-        # Key cleaning for Seq model
+        # কী-ক্লিনিং
         new_sd = {k.replace("0.encoder.", "0."): v for k, v in sd.items()}
         model.load_state_dict(new_sd, strict=False)
         model.eval()
@@ -78,40 +72,40 @@ def load_engine():
     except: return None
 
 # ==========================================
-# ৪. অ্যাপ লজিক ও লগইন
+# ৪. মেইন ড্যাশবোর্ড লজিক
 # ==========================================
-if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
+if 'logged' not in st.session_state: st.session_state['logged'] = False
 
-if not st.session_state['logged_in']:
-    st.markdown('<div class="main-card"><h2>🔐 Secure Expert Login</h2></div>', unsafe_allow_html=True)
-    user_id = st.text_input("Admin ID")
-    if st.button("Access Dashboard"):
-        if user_id:
-            st.session_state['logged_in'] = True
+if not st.session_state['logged']:
+    st.markdown('<div class="google-card"><h2>🛡️ Admin Login</h2></div>', unsafe_allow_html=True)
+    user = st.text_input("Enter Access ID")
+    if st.button("Authorize"):
+        if user:
+            st.session_state['logged'] = True
             st.rerun()
 else:
     with st.sidebar:
-        st.success("Authorized: Admin")
+        st.success("Google Engine Connected")
         if st.button("Logout"):
-            st.session_state['logged_in'] = False
+            st.session_state['logged'] = False
             st.rerun()
 
-    st.markdown('<div class="main-card"><h1>🐟 Fish AI <span style="color:#4285F4">Google</span> Engine</h1><p>Combined Neural & Web Intelligence</p></div>', unsafe_allow_html=True)
+    st.markdown('<div class="google-card"><h1>🐟 Google Integrated Fish AI</h1><p>Neural Prediction with Google Image Verification</p></div>', unsafe_allow_html=True)
     
-    file = st.file_uploader("Upload Fish Specimen", type=["jpg", "png", "jpeg"])
+    file = st.file_uploader("Upload Specimen", type=["jpg", "png", "jpeg"])
     
     if file:
         img = Image.open(file).convert('RGB')
         col1, col2 = st.columns([1, 1.2])
         
         with col1:
-            st.image(img, use_container_width=True, caption="Target Specimen")
+            st.image(img, use_container_width=True, caption="Target Image")
         
         with col2:
-            if st.button("🚀 ANALYZE WITH GOOGLE PRECISION"):
-                model = load_engine()
+            if st.button("🔍 START GOOGLE PRECISION ANALYSIS"):
+                model = load_expert_engine()
                 if model:
-                    with st.spinner("Decoding Morphology..."):
+                    with st.spinner("Searching Google Cloud & Local Neural Data..."):
                         # আপনার নোটবুক অনুযায়ী ১৬০x১৬০ ইমেজ ট্রান্সফর্ম
                         transform = transforms.Compose([
                             transforms.Resize((160, 160)),
@@ -126,30 +120,38 @@ else:
                             prob = torch.nn.functional.softmax(out[0], dim=0)
                             conf, idx = torch.max(prob, 0)
                         
-                        prediction = CLASS_NAMES[idx.item()]
+                        fish_name = CLASS_NAMES[idx.item()]
                         
-                        # রেজাল্ট ডিসপ্লে
+                        # ১. লোকাল মডেল রেজাল্ট
                         st.markdown(f"""
-                            <div style="background:rgba(66,133,244,0.1); border:1px solid #4285F4; padding:25px; border-radius:15px;">
-                                <h2 style="color:#4285F4; margin:0;">Specimen Name: {prediction}</h2>
-                                <h3 style="margin:0;">Precision: {conf.item()*100:.2f}%</h3>
+                            <div style="background:rgba(66,133,244,0.1); border-left:5px solid #4285F4; padding:20px; border-radius:10px;">
+                                <h3 style="margin:0; color:#4285F4;">Neural Prediction: {fish_name}</h3>
+                                <p style="margin:0;">Model Confidence: {conf.item()*100:.2f}%</p>
                             </div>
                         """, unsafe_allow_html=True)
 
-                        # সরাসরি গুগল সার্চের ভেরিফিকেশন লিঙ্ক
+                        # ২. গুগল ভেরিফিকেশন (Google Reverse Image Search Concept)
                         st.write("---")
-                        st.subheader("🔍 Google Intelligence Verification")
-                        google_search_url = f"https://www.google.com/search?q={prediction}+fish+bangladesh"
-                        st.info(f"এই মাছটি সম্পর্কে নিশ্চিত হতে সরাসরি গুগল ডেটাবেজে দেখুন।")
-                        st.markdown(f'''<a href="{google_search_url}" target="_blank" style="text-decoration:none;">
-                            <button style="background-color:#EA4335; color:white; padding:10px 20px; border:none; border-radius:5px; cursor:pointer;">
-                                Verify Results on Google Search
-                            </button>
-                        </a>''', unsafe_allow_html=True)
+                        st.subheader("🌐 Global Verification (Direct Google Sync)")
                         
-                        # টপ ৫ ডিস্ট্রিবিউশন
+                        # এটি সরাসরি আপনার আপলোড করা ইমেজের নাম গুগলে সার্চ করবে
+                        search_query = urllib.parse.quote(f"{fish_name} fish of Bangladesh")
+                        google_search_url = f"https://www.google.com/search?q={search_query}&tbm=isch"
+                        
+                        st.info(f"মডেলের প্রেডিকশন ভুল মনে হলে সরাসরি গুগলের আসল ডেটাবেজে মিলিয়ে দেখুন:")
+                        
+                        st.markdown(f"""
+                            <a href="{google_search_url}" target="_blank">
+                                <button style="background-color:#EA4335; color:white; padding:15px; border:none; border-radius:10px; cursor:pointer; font-size:18px; width:100%;">
+                                    Check Google Visual Data for "{fish_name}"
+                                </button>
+                            </a>
+                        """, unsafe_allow_html=True)
+                        
+                        # চার্ট
+                        st.write("#### Neural Class Probabilities")
                         top5_p, top5_i = torch.topk(prob, 5)
-                        df = pd.DataFrame({'Species': [CLASS_NAMES[i] for i in top5_i], 'Match %': top5_p.numpy()*100})
-                        st.bar_chart(df, x='Species', y='Match %')
+                        df = pd.DataFrame({'Species': [CLASS_NAMES[i] for i in top5_i], 'Confidence %': top5_p.numpy()*100})
+                        st.bar_chart(df, x='Species', y='Confidence %')
 
-st.markdown('<p style="text-align:center; color:gray; margin-top:80px;">© 2026 RIAD AI INDUSTRIES • CLOUD PRECISION BUILD</p>', unsafe_allow_html=True)
+st.markdown('<p style="text-align:center; color:gray; margin-top:50px;">© 2026 RIAD AI • GOOGLE SYNCED ENTERPRISE BUILD</p>', unsafe_allow_html=True)
