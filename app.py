@@ -8,134 +8,144 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 
 # =========================
-# 1. BASIC CONFIG
+# 1. CONFIG & PATHS
 # =========================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_FOLDER = os.path.join(BASE_DIR, "static/uploads")
 MODEL_FOLDER = os.path.join(BASE_DIR, "models")
-# আপনার ওয়াটারমার্ক ইমেজের পাথ (নিশ্চিত করুন এই ফাইলটি আছে)
-WATERMARK_PATH = os.path.join(BASE_DIR, "static/watermark.png") 
+# আপনার ওয়াটারমার্ক ছবির সঠিক পাথ
+WATERMARK_PATH = os.path.join(BASE_DIR, "static", "watermark.png") 
 
-ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg"}
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-
-logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(message)s")
 
 # =========================
-# 2. SESSION STATE
+# 2. LOAD MODEL (classifier_final.pt)
+# =========================
+# আপনার ফাইলের নাম অনুযায়ী এখানে আপডেট করা হয়েছে
+MODEL_FILE_NAME = "classifier_final.pt" 
+MODEL_PATH = os.path.join(MODEL_FOLDER, MODEL_FILE_NAME)
+
+@st.cache_resource
+def load_final_model():
+    if not os.path.exists(MODEL_PATH):
+        logging.error(f"Error: {MODEL_FILE_NAME} not found in {MODEL_FOLDER}")
+        return None
+    try:
+        # মডেল লোড
+        model = torch.load(MODEL_PATH, map_location="cpu")
+        model.eval()
+        logging.info(f"{MODEL_FILE_NAME} loaded successfully!")
+        return model
+    except Exception as e:
+        logging.error(f"Failed to load model: {e}")
+        return None
+
+model = load_final_model()
+
+# =========================
+# 3. WATERMARK ENGINE
+# =========================
+def apply_advanced_watermark(base_image_path, output_path, result_text):
+    # মেইন ছবি ওপেন করা
+    base = Image.open(base_image_path).convert("RGBA")
+    
+    # নতুন একটি লেয়ার তৈরি করা ওয়াটারমার্কের জন্য
+    txt_layer = Image.new("RGBA", base.size, (255, 255, 255, 0))
+    draw = ImageDraw.Draw(txt_layer)
+    
+    # ১. ওয়াটারমার্ক ইমেজ (PNG) বসানো
+    if os.path.exists(WATERMARK_PATH):
+        wm_logo = Image.open(WATERMARK_PATH).convert("RGBA")
+        # লোগো সাইজ অ্যাডজাস্ট করা (ছবির ২০%)
+        wm_logo.thumbnail((base.width // 4, base.height // 4))
+        # একদম মাঝখানে বা নিচে ডানে বসানো (নিচে ডানে সেট করলাম)
+        position = (base.width - wm_logo.width - 20, base.height - wm_logo.height - 20)
+        base.paste(wm_logo, position, wm_logo)
+    
+    # ২. রেজাল্ট টেক্সট লেখা
+    try:
+        # ভালো ফন্ট না থাকলে ডিফল্ট কাজ করবে
+        draw.text((30, 30), f"PREDICTION: {result_text}", fill=(255, 255, 255, 180)) 
+    except:
+        draw.text((30, 30), f"PREDICTION: {result_text}", fill="white")
+
+    # লেয়ার কম্বাইন করা
+    out = Image.alpha_composite(base, txt_layer)
+    out.convert("RGB").save(output_path, "JPEG")
+    return output_path
+
+# =========================
+# 4. STREAMLIT UI
 # =========================
 if 'USERS' not in st.session_state: st.session_state['USERS'] = {}
 if 'user' not in st.session_state: st.session_state['user'] = None
 
-# =========================
-# 3. LOAD MODEL
-# =========================
-MODEL_PATH = os.path.join(MODEL_FOLDER, "classifier.pt")
-CLASS_NAMES = ["Class A", "Class B", "Class C"]
-
-@st.cache_resource
-def load_model():
-    try:
-        if os.path.exists(MODEL_PATH):
-            model = torch.load(MODEL_PATH, map_location="cpu")
-            model.eval()
-            logging.info("Model loaded successfully")
-            return model
-    except Exception as e:
-        logging.error(f"Model loading failed: {e}")
-    return None
-
-model = load_model()
-
-# =========================
-# 4. WATERMARK FUNCTION (ইমেজের ওপর লেখা ও লোগো বসানো)
-# =========================
-def apply_watermark(input_image_path, output_image_path, text_result):
-    img = Image.open(input_image_path).convert("RGBA")
-    draw = ImageDraw.Draw(img)
-    
-    # ১. ওয়াটারমার্ক ইমেজ বসানো (যদি থাকে)
-    if os.path.exists(WATERMARK_PATH):
-        mark = Image.open(WATERMARK_PATH).convert("RGBA")
-        # ওয়াটারমার্ক রিসাইজ করা (ছবির ১০%)
-        mark.thumbnail((img.width // 5, img.height // 5))
-        img.paste(mark, (img.width - mark.width - 10, img.height - mark.height - 10), mark)
-    
-    # ২. ছবির ওপর টেক্সট লেখা (Result)
-    try:
-        # ফন্ট লোড করার চেষ্টা (না থাকলে ডিফল্ট)
-        font = ImageFont.load_default() 
-        draw.text((20, 20), f"Result: {text_result}", fill=(255, 255, 255, 255), font=font)
-    except:
-        draw.text((20, 20), f"Result: {text_result}", fill="white")
-
-    img.convert("RGB").save(output_image_path)
-    return output_image_path
-
-# =========================
-# 5. UI & ROUTES
-# =========================
-st.sidebar.title("Main Menu")
+st.sidebar.title("Navigation")
 if st.session_state['user']:
-    page = st.sidebar.radio("Navigate", ["Dashboard", "Profile", "Logout"])
+    choice = st.sidebar.selectbox("Menu", ["Dashboard", "Profile", "Logout"])
 else:
-    page = st.sidebar.radio("Navigate", ["Login", "Register"])
+    choice = st.sidebar.selectbox("Menu", ["Login", "Register"])
 
-# --- REGISTER/LOGIN (আগের মতই) ---
-if page == "Register":
+# --- AUTH LOGIC ---
+if choice == "Register":
     st.title("Register")
-    u = st.text_input("Username")
-    p = st.text_input("Password", type="password")
-    if st.button("Sign Up"):
+    u = st.text_input("New Username")
+    p = st.text_input("New Password", type="password")
+    if st.button("Create Account"):
         st.session_state['USERS'][u] = {"password": generate_password_hash(p)}
-        st.success("Done!")
+        st.success("User Registered!")
 
-elif page == "Login":
-    st.title("Login")
+elif choice == "Login":
+    st.title("User Login")
     u = st.text_input("Username")
     p = st.text_input("Password", type="password")
     if st.button("Login"):
-        user_data = st.session_state['USERS'].get(u)
-        if user_data and check_password_hash(user_data["password"], p):
+        user = st.session_state['USERS'].get(u)
+        if user and check_password_hash(user["password"], p):
             st.session_state['user'] = u
             st.rerun()
+        else:
+            st.error("Wrong info!")
 
-# --- DASHBOARD (প্রেডিকশন ও ওয়াটারমার্ক) ---
-elif page == "Dashboard":
-    st.title(f"Welcome, {st.session_state['user']}")
-    uploaded_file = st.file_uploader("Upload Image", type=["jpg","png","jpeg"])
+# --- DASHBOARD (Main logic) ---
+elif choice == "Dashboard":
+    st.title(f"Welcome {st.session_state['user']}")
+    
+    if model is None:
+        st.warning(f"Warning: {MODEL_FILE_NAME} is missing. Using dummy mode.")
+
+    uploaded_file = st.file_uploader("Upload Image", type=["jpg", "png", "jpeg"])
 
     if uploaded_file:
-        # ১. অরিজিনাল ফাইল সেভ
-        filename = secure_filename(uploaded_file.name)
-        unique_id = str(uuid.uuid4())
-        temp_path = os.path.join(UPLOAD_FOLDER, f"temp_{unique_id}_{filename}")
-        final_path = os.path.join(UPLOAD_FOLDER, f"processed_{unique_id}_{filename}")
+        # ফাইল সেভ করা (UUID দিয়ে আপনার অরিজিনাল লজিক)
+        ext = uploaded_file.name.split('.')[-1]
+        unique_name = f"{uuid.uuid4()}.{ext}"
+        temp_path = os.path.join(UPLOAD_FOLDER, f"raw_{unique_name}")
+        final_path = os.path.join(UPLOAD_FOLDER, f"wm_{unique_name}")
 
         with open(temp_path, "wb") as f:
             f.write(uploaded_file.getbuffer())
 
-        if st.button("Predict & Process"):
-            if model is None:
-                st.error("Model missing in /models/classifier.pt")
-            else:
-                # ২. প্রেডিকশন (আপনার অরিজিনাল লজিক)
-                # এখানে আপনার preprocessing code বসাতে পারেন
-                predicted_class = CLASS_NAMES[0] 
-                confidence = 0.92
+        if st.button("Analyze & Add Watermark"):
+            with st.spinner("Processing..."):
+                # প্রেডিকশন
+                # এখানে আপনার মডেলের ইনপুট প্রি-প্রসেসিং কোড বসাবেন
+                pred_label = "Class A" # Dummy result
+                conf = "95%"
 
-                # ৩. ওয়াটারমার্ক অ্যাপ্লাই করা
-                result_text = f"{predicted_class} ({confidence*100}%)"
-                processed_img_path = apply_watermark(temp_path, final_path, result_text)
+                # ওয়াটারমার্ক অ্যাপ্লাই
+                result_str = f"{pred_label} | {conf}"
+                processed_img = apply_advanced_watermark(temp_path, final_path, result_str)
 
-                # ৪. ডিসপ্লে
-                st.image(processed_img_path, caption="Processed Image with Watermark")
-                st.success(f"Prediction: {predicted_class}")
-                st.info(f"Confidence: {confidence}")
+                # রেজাল্ট শো
+                st.image(processed_img, caption="Final Result with Watermark")
+                st.success(f"Successfully Analyzed by {st.session_state['user']}")
                 
-                # ৫. লগিং
-                logging.info(f"User {st.session_state['user']} processed {filename}")
+                # ফাইল ডাউনলোড বাটন (অপশনাল)
+                with open(processed_img, "rb") as file:
+                    st.download_button("Download Marked Image", file, file_name=f"result_{unique_name}")
 
-elif page == "Logout":
+elif choice == "Logout":
     st.session_state['user'] = None
     st.rerun()
