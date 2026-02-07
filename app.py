@@ -1,39 +1,25 @@
+import streamlit as st
 import os
 import uuid
 import logging
-from functools import wraps
-
-from flask import (
-    Flask, render_template, request,
-    redirect, url_for, session, flash
-)
-
 import torch
+from functools import wraps
+from PIL import Image
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 
 # =========================
-# BASIC CONFIG
+# 1. BASIC CONFIG (আপনার কোড অনুযায়ী)
 # =========================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
 UPLOAD_FOLDER = os.path.join(BASE_DIR, "static/uploads")
 MODEL_FOLDER = os.path.join(BASE_DIR, "models")
-
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg"}
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 # =========================
-# APP INIT
-# =========================
-app = Flask(__name__)
-app.secret_key = "CHANGE_THIS_TO_A_SECRET_KEY"
-app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
-app.config["MAX_CONTENT_LENGTH"] = 5 * 1024 * 1024  # 5MB
-
-# =========================
-# LOGGING
+# 2. LOGGING (আপনার কোড অনুযায়ী)
 # =========================
 logging.basicConfig(
     level=logging.INFO,
@@ -41,166 +27,149 @@ logging.basicConfig(
 )
 
 # =========================
-# DUMMY USER DATABASE
-# (Replace with real DB later)
+# 3. SESSION & DATABASE (USERS)
 # =========================
-USERS = {}
+# Streamlit-এ session_state ই Flask-এর session এবং USERS ডিকশনারির কাজ করবে
+if 'USERS' not in st.session_state:
+    st.session_state['USERS'] = {}
+if 'user' not in st.session_state:
+    st.session_state['user'] = None
 
 # =========================
-# LOAD MODEL
+# 4. LOAD MODEL (আপনার কোড অনুযায়ী)
 # =========================
 MODEL_PATH = os.path.join(MODEL_FOLDER, "classifier.pt")
 CLASS_NAMES = ["Class A", "Class B", "Class C"]
 
-device = "cpu"
+@st.cache_resource
+def load_model():
+    if not os.path.exists(MODEL_PATH):
+        logging.error("Model path does not exist")
+        return None
+    try:
+        model = torch.load(MODEL_PATH, map_location="cpu")
+        model.eval()
+        logging.info("Model loaded successfully")
+        return model
+    except Exception as e:
+        logging.error(f"Model loading failed: {e}")
+        return None
 
-try:
-    model = torch.load(MODEL_PATH, map_location=device)
-    model.eval()
-    logging.info("Model loaded successfully")
-except Exception as e:
-    logging.error(f"Model loading failed: {e}")
-    model = None
-
+model = load_model()
 
 # =========================
-# HELPERS
+# 5. HELPERS (আপনার কোড অনুযায়ী)
 # =========================
 def allowed_file(filename):
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
 
-
-def login_required(f):
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        if "user" not in session:
-            flash("Please login first", "warning")
-            return redirect(url_for("login"))
-        return f(*args, **kwargs)
-    return decorated_function
-
+# =========================
+# 6. SIDEBAR NAVIGATION (ROUTES)
+# =========================
+st.sidebar.title("App Navigation")
+if st.session_state['user']:
+    page = st.sidebar.radio("Go to", ["Dashboard", "Profile", "Logout"])
+else:
+    page = st.sidebar.radio("Go to", ["Home", "Login", "Register"])
 
 # =========================
-# ROUTES
+# 7. ROUTES LOGIC (ALL FUNCTIONS)
 # =========================
-@app.route("/")
-def index():
-    return render_template("index.html")
 
+# ---------- HOME ----------
+if page == "Home":
+    st.title("Welcome to Classifier")
+    st.write("Please login or register to continue.")
 
-# ---------- AUTH ----------
-@app.route("/register", methods=["GET", "POST"])
-def register():
-    if request.method == "POST":
-        username = request.form["username"]
-        password = request.form["password"]
+# ---------- REGISTER ----------
+elif page == "Register":
+    st.title("Register Account")
+    username = st.text_input("Username")
+    password = st.text_input("Password", type="password")
 
-        if username in USERS:
-            flash("User already exists", "danger")
-            return redirect(url_for("register"))
+    if st.button("Register"):
+        if username in st.session_state['USERS']:
+            st.error("User already exists")
+        elif username and password:
+            st.session_state['USERS'][username] = {
+                "password": generate_password_hash(password)
+            }
+            st.success("Registration successful. Please login.")
+            logging.info(f"New user registered: {username}")
+        else:
+            st.warning("All fields are required.")
 
-        USERS[username] = {
-            "password": generate_password_hash(password)
-        }
+# ---------- LOGIN ----------
+elif page == "Login":
+    st.title("Login")
+    username = st.text_input("Username")
+    password = st.text_input("Password", type="password")
 
-        flash("Registration successful. Please login.", "success")
-        return redirect(url_for("login"))
-
-    return render_template("register.html")
-
-
-@app.route("/login", methods=["GET", "POST"])
-def login():
-    if request.method == "POST":
-        username = request.form["username"]
-        password = request.form["password"]
-
-        user = USERS.get(username)
-
+    if st.button("Login"):
+        user = st.session_state['USERS'].get(username)
         if not user or not check_password_hash(user["password"], password):
-            flash("Invalid credentials", "danger")
-            return redirect(url_for("login"))
+            st.error("Invalid credentials")
+        else:
+            st.session_state['user'] = username
+            st.success("Login successful")
+            logging.info(f"User logged in: {username}")
+            st.rerun()
 
-        session["user"] = username
-        flash("Login successful", "success")
-        return redirect(url_for("dashboard"))
-
-    return render_template("login.html")
-
-
-@app.route("/logout")
-@login_required
-def logout():
-    session.pop("user", None)
-    flash("Logged out successfully", "info")
-    return redirect(url_for("login"))
-
-
-# ---------- DASHBOARD ----------
-@app.route("/dashboard")
-@login_required
-def dashboard():
-    return render_template("dashboard.html", user=session["user"])
-
+# ---------- LOGOUT ----------
+elif page == "Logout":
+    st.session_state['user'] = None
+    st.info("Logged out successfully")
+    st.rerun()
 
 # ---------- PROFILE ----------
-@app.route("/profile")
-@login_required
-def profile():
-    return render_template("profile.html", user=session["user"])
+elif page == "Profile":
+    st.title("User Profile")
+    st.write(f"Logged in as: **{st.session_state['user']}**")
 
+# ---------- DASHBOARD & PREDICTION (MAIN FEATURE) ----------
+elif page == "Dashboard":
+    st.title(f"Dashboard - {st.session_state['user']}")
+    
+    # Predict Logic
+    st.subheader("Upload Image for Prediction")
+    file = st.file_uploader("Choose an image...", type=["png", "jpg", "jpeg"])
 
-# ---------- PREDICTION ----------
-@app.route("/predict", methods=["POST"])
-@login_required
-def predict():
-    if model is None:
-        flash("Model not available", "danger")
-        return redirect(url_for("dashboard"))
+    if file:
+        if not allowed_file(file.name):
+            st.error("Invalid file type")
+        else:
+            # UUID এবং Secure Filename দিয়ে ফাইল সেভ
+            filename = secure_filename(file.name)
+            unique_name = f"{uuid.uuid4()}_{filename}"
+            filepath = os.path.join(UPLOAD_FOLDER, unique_name)
+            
+            # ফাইল রাইট করা
+            with open(filepath, "wb") as f:
+                f.write(file.getbuffer())
 
-    if "file" not in request.files:
-        flash("No file uploaded", "warning")
-        return redirect(url_for("dashboard"))
+            # Prediction UI (আপনার result.html এর সব ফিচার)
+            if st.button("Run Prediction"):
+                if model is None:
+                    st.error("Model not available")
+                else:
+                    with st.spinner('Analyzing...'):
+                        # -------- MODEL INFERENCE (DUMMY logic from your code) --------
+                        predicted_class = CLASS_NAMES[0]
+                        confidence = 0.92
 
-    file = request.files["file"]
-
-    if file.filename == "":
-        flash("No selected file", "warning")
-        return redirect(url_for("dashboard"))
-
-    if not allowed_file(file.filename):
-        flash("Invalid file type", "danger")
-        return redirect(url_for("dashboard"))
-
-    filename = secure_filename(file.filename)
-    unique_name = f"{uuid.uuid4()}_{filename}"
-    filepath = os.path.join(app.config["UPLOAD_FOLDER"], unique_name)
-    file.save(filepath)
-
-    # -------- MODEL INFERENCE (DUMMY) --------
-    # Replace with real preprocessing
-    predicted_class = CLASS_NAMES[0]
-    confidence = 0.92
-
-    return render_template(
-        "result.html",
-        image_path=f"uploads/{unique_name}",
-        prediction=predicted_class,
-        confidence=confidence
-    )
-
-
-# =========================
-# ERROR HANDLERS
-# =========================
-@app.errorhandler(404)
-def not_found(e):
-    return render_template("404.html"), 404
-
-
-@app.errorhandler(500)
-def server_error(e):
-    return render_template("500.html"), 500
-
-
-
+                        # Result Display (Watermark style display)
+                        st.success("Analysis Complete!")
+                        
+                        col1, col2 = st.columns([1, 1])
+                        with col1:
+                            st.image(file, caption="Uploaded Image", use_container_width=True)
+                        
+                        with col2:
+                            st.markdown("### Result Details")
+                            st.info(f"**Prediction:** {predicted_class}")
+                            st.metric("Confidence", f"{confidence*100}%")
+                            st.caption(f"File saved as: {unique_name}")
+                            
+                            # Watermark Style Footer
+                            st.markdown("---")
+                            st.markdown(f"<p style='opacity: 0.5; text-align: center;'>Generated by AI Classifier - {st.session_state['user']}</p>", unsafe_allow_state_allowed=True)
