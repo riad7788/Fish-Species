@@ -17,7 +17,7 @@ st.set_page_config(
 )
 
 # ==================================================
-# GLOBAL STYLES (ENTERPRISE UI)
+# GLOBAL STYLES (INDUSTRY UI)
 # ==================================================
 def inject_css(image_path):
     with open(image_path, "rb") as f:
@@ -32,7 +32,7 @@ def inject_css(image_path):
 
         .stApp {{
             background:
-              linear-gradient(rgba(0,0,0,0.70), rgba(0,0,0,0.70)),
+              linear-gradient(rgba(0,0,0,0.72), rgba(0,0,0,0.72)),
               url("data:image/png;base64,{encoded}");
             background-size: cover;
             background-position: center;
@@ -40,20 +40,18 @@ def inject_css(image_path):
         }}
 
         .block-container {{
-            max-width: 780px;
-            background: rgba(255,255,255,0.13);
-            backdrop-filter: blur(22px);
-            -webkit-backdrop-filter: blur(22px);
-            padding: 3.5rem;
-            border-radius: 26px;
+            max-width: 800px;
+            background: rgba(255,255,255,0.12);
+            backdrop-filter: blur(24px);
+            padding: 3.6rem;
+            border-radius: 28px;
             border: 1px solid rgba(255,255,255,0.25);
-            box-shadow: 0 30px 90px rgba(0,0,0,0.60);
+            box-shadow: 0 35px 100px rgba(0,0,0,0.65);
         }}
 
-        /* Buttons */
         button {{
             width: 100%;
-            height: 3.4em;
+            height: 3.5em;
             border-radius: 18px !important;
             font-size: 18px !important;
             font-weight: 600;
@@ -67,7 +65,6 @@ def inject_css(image_path):
             transition: 0.25s ease;
         }}
 
-        /* File uploader */
         section[data-testid="stFileUploader"] {{
             background: rgba(0,0,0,0.45);
             border-radius: 18px;
@@ -75,7 +72,6 @@ def inject_css(image_path):
             border: 1px dashed rgba(255,255,255,0.45);
         }}
 
-        /* Progress bar */
         .stProgress > div > div {{
             background-image: linear-gradient(90deg,#00c6ff,#0072ff);
         }}
@@ -87,30 +83,52 @@ def inject_css(image_path):
 inject_css("assets/watermark.png")
 
 # ==================================================
-# SIDEBAR (PRODUCT / ENTERPRISE INFO)
+# SIDEBAR (ENTERPRISE CONTROL PANEL)
 # ==================================================
 with st.sidebar:
     st.markdown("## 🐟 Fish AI Platform")
-    st.markdown("""
-    **Core Technology**
-    - SimCLR (Self-Supervised Learning)
-    - ResNet50 Deep Encoder
-    - Linear Evaluation Protocol
 
-    **Capabilities**
-    - Multi-class fish identification
-    - High-level feature extraction
-    - Robust to lighting & background
+    language = st.selectbox("🌐 Language", ["English", "বাংলা"])
+    enable_explain = st.checkbox("🔬 Enable Explainability (Grad-CAM)", False)
+    enable_report = st.checkbox("📄 Enable PDF Report", False)
+
+    st.markdown("""
+    ---
+    **Model**
+    - SimCLR (Self-Supervised)
+    - ResNet50 Encoder
+    - Linear Evaluation
 
     **Use Cases**
     - Fisheries research
     - Education & labs
-    - AI demonstrations
+    - AI product demos
 
-    ---
     **Developer**
     **Riad**
     """)
+
+# ==================================================
+# TEXT (LANGUAGE SUPPORT)
+# ==================================================
+TEXT = {
+    "English": {
+        "title": "Fish Species Detection",
+        "subtitle": "Industry-Grade AI Fish Classification Platform",
+        "upload": "📤 Upload a fish image",
+        "analyze": "🔍 Analyze Image",
+        "results": "Prediction Results"
+    },
+    "বাংলা": {
+        "title": "মাছের প্রজাতি শনাক্তকরণ",
+        "subtitle": "ইন্ডাস্ট্রি-গ্রেড AI ফিশ ক্লাসিফিকেশন সিস্টেম",
+        "upload": "📤 মাছের ছবি আপলোড করুন",
+        "analyze": "🔍 ছবি বিশ্লেষণ করুন",
+        "results": "পূর্বাভাসের ফলাফল"
+    }
+}
+
+T = TEXT[language]
 
 # ==================================================
 # CONFIG
@@ -138,7 +156,6 @@ def load_models():
     )
 
     encoder_state = torch.load(encoder_path, map_location=DEVICE)
-
     base = models.resnet50(weights=None)
     encoder = nn.Sequential(*list(base.children())[:-1]).to(DEVICE)
 
@@ -146,7 +163,6 @@ def load_models():
     for k, v in encoder_state.items():
         k = k.replace("encoder.", "").replace("backbone.", "").replace("module.", "")
         clean_state[k] = v
-
     encoder.load_state_dict(clean_state, strict=False)
     encoder.eval()
 
@@ -194,36 +210,42 @@ def predict_topk(img, k=3):
 # ==================================================
 # HEADER
 # ==================================================
-st.markdown("""
+st.markdown(f"""
 <div style="text-align:center;">
-    <h1 style="font-size:46px;">🐟 Fish Species Detection</h1>
+    <h1 style="font-size:48px;">🐟 {T["title"]}</h1>
     <p style="font-size:18px; color:#dddddd;">
-        Industry-Grade AI Fish Classification Platform
+        {T["subtitle"]}
     </p>
 </div>
-<hr style="margin:30px 0;">
+<hr style="margin:32px 0;">
 """, unsafe_allow_html=True)
 
 # ==================================================
 # MAIN APP
 # ==================================================
-file = st.file_uploader("📤 Upload a fish image", type=["jpg","jpeg","png"])
+file = st.file_uploader(T["upload"], type=["jpg","jpeg","png"])
 
 if file:
     try:
         image = Image.open(file).convert("RGB")
         st.image(image, caption="Uploaded Image", use_column_width=True)
 
-        if st.button("🔍 Analyze Image"):
-            with st.spinner("Extracting deep visual features..."):
+        if st.button(T["analyze"]):
+            with st.spinner("Running deep visual analysis..."):
                 results = predict_topk(image)
 
-            st.markdown("## 🧠 Prediction Results")
+            st.markdown(f"## 🧠 {T['results']}")
 
             for label, conf in results:
                 st.markdown(f"**{label}**")
                 st.progress(int(conf))
                 st.caption(f"Confidence: {conf:.2f}%")
+
+            if enable_explain:
+                st.info("🔬 Grad-CAM enabled (hook ready – add visualization module).")
+
+            if enable_report:
+                st.info("📄 PDF report enabled (hook ready – generate inference report).")
 
     except Exception:
         st.error("❌ Invalid image. Please upload a valid fish image.")
@@ -232,7 +254,7 @@ if file:
 # FOOTER
 # ==================================================
 st.markdown("""
-<hr style="margin-top:45px;">
+<hr style="margin-top:50px;">
 <p style="text-align:center; color:#cfcfcf; font-size:14px;">
 © 2026 · Fish AI Classification Platform<br>
 Built with PyTorch · SimCLR · Streamlit<br>
